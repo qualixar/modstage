@@ -55,7 +55,7 @@ What the fakes prove: ModStage sends and reads each CLI's protocol messages corr
 18. **Grok · 6 Resume after exit**: restarts a fresh process with a recap of the run, not the CLI's own session resume
 19. **Grok · 8 Images**: Grok's ACP initialize says promptCapabilities.image = false: ModStage refuses with that reason
 20. **Antigravity · 2b Long turn looks alive**: agy streams no thinking text, only step events: the panel shows 'thinking' and stays fresh, but cannot show what it is thinking
-21. **Antigravity · 3 Approval round trip**: headless agy cannot ask (it refuses and reports denied_actions); ModStage shows each refusal, marks the run blocked, and says so before Start
+21. **Antigravity · 3 Approval round trip**: headless agy cannot ask (it refuses and reports denied_actions). Ask runs are read-only through a per-run agy project (web reads, web search, files in cwd); ModStage shows each refusal, marks the run blocked with the way out (autonomy auto), and says so before Start
 22. **Antigravity · 4 Steer mid-turn**: CLI has no mid-turn input; the message queues until the turn ends
 23. **Antigravity · 4b Queued-message feedback**: 'Interrupt and send now' restarts agy (it has no cancel) with a recap plus the queued message
 24. **Antigravity · 5 Interrupt**: agy has no cancel: ModStage stops the process; the next message restarts it with a recap
@@ -94,5 +94,5 @@ Run against an installed build with tiny prompts, one agent at a time (`scripts/
 
 ## Why some rows read the way they do
 
-- **Antigravity approvals are n/a**: probed on agy 1.4.0 in stream-json print mode without the skip-permissions flag. A command that needs permission is auto-denied, the turn ends with `result.denied_actions`, and stderr says headless mode cannot prompt. There is no stream-json input that answers a permission, so ModStage shows the refusal and says so before Start.
+- **Antigravity approvals are n/a**: probed on agy 1.4.0 in stream-json print mode without the skip-permissions flag. A command that needs permission is auto-denied, the turn ends with `result.denied_actions`, and stderr says headless mode cannot prompt. There is no stream-json input that answers a permission, so ModStage shows the refusal and says so before Start. Ask runs are made read-only rather than dead ends: each one gets a ModStage-owned agy project (`~/.gemini/config/projects/modstage-*.json`, removed when the run ends) that allows `read_url(*)` and `read_file(<cwd>)` and keeps `write_file(<cwd>)` and `command(*)` at ask, so web research and reading its folder work and writes, commands and files outside its folder are refused (probed 17 Oct 2026).
 - **Approvals time out after 10 minutes**: an unanswered card is denied with the reason "no answer in time". Typing "yes" in the message box is not an answer, which is why the box refuses text while a card waits.

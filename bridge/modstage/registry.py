@@ -37,7 +37,7 @@ BUILTIN: list[dict] = [
      "color": "#E0AF68", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 2},
     {"id": "antigravity", "name": "Antigravity", "protocol": "stream-json",
      "command": ["agy", "--input-format", "stream-json", "--output-format", "stream-json", "--print="],
-     "auto_args": ["--dangerously-skip-permissions"], "approvals": "cli",
+     "auto_args": ["--dangerously-skip-permissions"], "approvals": "cli", "ask_readonly": "agy-project",
      "color": "#8AB4F8", "steer": "queue", "model_args": ["--model", "{model}"], "model_args_before": 1},
     {"id": "kimi", "name": "Kimi", "protocol": "acp", "command": ["kimi", "acp"],
      "color": "#F5C2E7", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 1},
@@ -90,9 +90,17 @@ def _approval_note(spec: dict) -> str:
         if "always-approve" in text or "bypassPermissions" in text:
             return f"auto-approves every action ({cfg}: permission_mode); ModStage cannot ask you first"
     if spec.get("approvals") == "cli":
-        return ("headless agy cannot ask for permission: in ask mode it refuses anything that needs it, and the panel "
-                "shows what it refused. Auto mode allows everything (its skip-permissions flag)")
+        return AGY_NOTE if spec.get("ask_readonly") == "agy-project" else (
+            "headless agy cannot ask for permission: in ask mode it refuses anything that needs it, and the panel "
+            "shows what it refused. Auto mode allows everything (its skip-permissions flag)")
     return ""
+
+
+AGY_NOTE = ("headless agy cannot ask for permission. Ask mode is read-only: it may read web pages, search the web "
+            "and read files in its folder; writes, shell commands and files outside its folder are refused and end "
+            "the turn blocked. To let it do those, restart with autonomy \"auto\", ideally in an isolated folder")
+AGY_RESTART = ("To let it proceed, start a new run with autonomy \"auto\", ideally in an isolated folder "
+               "(auto allows everything)")
 
 
 # ---- models: asked of each CLI itself, once, in the background ----

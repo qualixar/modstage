@@ -162,7 +162,10 @@ def main() -> int:
         "- **Antigravity approvals are n/a**: probed on agy 1.4.0 in stream-json print mode without the skip-permissions "
         "flag. A command that needs permission is auto-denied, the turn ends with `result.denied_actions`, and stderr says "
         "headless mode cannot prompt. There is no stream-json input that answers a permission, so ModStage shows the refusal "
-        "and says so before Start.",
+        "and says so before Start. Ask runs are made read-only rather than dead ends: each one gets a ModStage-owned agy "
+        "project (`~/.gemini/config/projects/modstage-*.json`, removed when the run ends) that allows `read_url(*)` and "
+        "`read_file(<cwd>)` and keeps `write_file(<cwd>)` and `command(*)` at ask, so web research and reading its folder "
+        "work and writes, commands and files outside its folder are refused (probed 17 Oct 2026).",
         "- **Approvals time out after 10 minutes**: an unanswered card is denied with the reason \"no answer in time\". "
         "Typing \"yes\" in the message box is not an answer, which is why the box refuses text while a card waits.",
     ]

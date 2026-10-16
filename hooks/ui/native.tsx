@@ -187,6 +187,9 @@ export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a
         <Text color={colour} bold>› message {run.name ?? run.engine}</Text>
         <Text dimColor>  ·  {how}</Text>
       </Text>
+      {run.blocked && !running ? (
+        <Text key="blocked" color={WARN} wrap="wrap">⛔ Turn ended blocked: {run.blocked}</Text>
+      ) : null}
       {running && run.queued ? (
         <Text color={WARN} wrap="truncate-end">⇢ {run.queued} queued · runs when the turn ends{run.engine === 'antigravity' ? ' · sending now restarts agy with a recap' : ''}</Text>
       ) : null}

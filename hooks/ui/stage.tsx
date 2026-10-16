@@ -11,7 +11,7 @@ export type RunView = {
   id: string; engine: string; model: string | null; label: string; cwd: string
   status: string; activity: string; elapsed_s: number; usage: Usage; error: string | null
   name?: string; color?: string | null; steer?: string; autonomy?: string; quiet_s?: number; stuck?: boolean
-  approval_note?: string; pending?: unknown[]
+  approval_note?: string; pending?: unknown[]; blocked?: string
 }
 export type EventView = { seq: number; kind: string; text: string; detail?: string }
 export type StageProps = {
@@ -195,12 +195,13 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
           <Text wrap="truncate-end">
             <Text backgroundColor="#313244" color={colour}> {run.steer === 'native' ? '⇄ steerable' : run.steer === 'watch' ? '◉ watch only' : '⇢ queued msgs'} </Text>
             <Text> </Text>
-            <Text backgroundColor="#313244" color={run.autonomy === 'auto' ? '#F7768E' : '#9ECE6A'}> {run.autonomy === 'auto' ? '⚡ autonomous' : run.steer === 'watch' ? '✻ claude' : '◆ asks first'} </Text>
+            <Text backgroundColor="#313244" color={run.autonomy === 'auto' ? '#F7768E' : '#9ECE6A'}> {run.autonomy === 'auto' ? '⚡ autonomous' : run.steer === 'watch' ? '✻ claude' : run.engine === 'antigravity' ? '◆ read-only' : '◆ asks first'} </Text>
             {run.pending && run.pending.length ? <Text color="#E0AF68" bold>  ⚑ {run.pending.length} waiting on you</Text> : null}
             {run.stuck ? <Text color="#F7768E" bold>  ⏸ quiet {Math.round((run.quiet_s ?? 0) / 60)}m</Text>
               : running && (run.quiet_s ?? 0) >= 45 ? <Text dimColor>  · no new output for {(run.quiet_s ?? 0) < 120 ? `${run.quiet_s}s` : `${Math.round((run.quiet_s ?? 0) / 60)}m`}, still running</Text> : null}
           </Text>
-          {run.approval_note ? <Text color="#E0AF68" wrap="truncate-end">⚠ {run.approval_note}</Text> : null}
+          {run.blocked ? <Text color="#F7768E" wrap="truncate-end">⛔ blocked: {run.blocked}</Text>
+            : run.approval_note ? <Text color="#E0AF68" wrap="truncate-end">⚠ {run.approval_note}</Text> : null}
           <Text dimColor wrap="truncate-middle">{shortPath(run.cwd, p.home)}</Text>
           <Text wrap="truncate-end">
             <Text dimColor>context </Text><Text color={c != null && c > 80 ? '#F7768E' : colour}>{bar(c, 12)}</Text>

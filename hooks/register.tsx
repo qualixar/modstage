@@ -359,11 +359,11 @@ function report(d: Record<string, any>, events: number): string {
   const lines = (d.new_events as RunEvent[]).slice(-events).map(e => `  [${oneLine(e.kind, 20)}] ${oneLine(e.text.split('\n')[0], 200)}`)
   const waiting = (r.pending ?? []) as Pending[]
   return [
-    `run ${r.id} · ${r.engine}${r.model ? ' ' + oneLine(r.model, 80) : ''} · ${r.status} (${oneLine(r.activity, 120)}) · ${r.elapsed_s}s · ${r.autonomy === 'auto' ? 'autonomous' : 'asks first'}`,
+    `run ${r.id} · ${r.engine}${r.model ? ' ' + oneLine(r.model, 80) : ''} · ${r.status} (${oneLine(r.activity, 120)}) · ${r.elapsed_s}s · ${r.autonomy === 'auto' ? 'autonomous' : r.engine === 'antigravity' ? 'read-only (cannot ask)' : 'asks first'}`,
     `context ${ctx(r)} · spent ${spend(r)}`,
     r.error ? `error: ${oneLine(r.error)}` : '',
     waiting.length ? `WAITING ON THE USER (${waiting.length} approval${waiting.length === 1 ? '' : 's'}):\n${describePending(waiting)}\n${DECIDE_RULE}` : '',
-    r.blocked ? `BLOCKED: ${oneLine(r.blocked)}. ${oneLine(r.approval_note ?? '')}` : '',
+    r.blocked ? `BLOCKED (turn ended): ${oneLine(r.blocked, 600)}` : '',
     r.queued ? `${r.queued} message${r.queued === 1 ? '' : 's'} queued: run${r.queued === 1 ? 's' : ''} when the turn ends (stage_send now: true, or stage_interrupt, to run it sooner)` : '',
     `waiting_on_user: ${waiting.length ? 'yes' : 'no'}`,
     r.stuck ? `no activity for ${Math.round((r.quiet_s ?? 0) / 60)} min: consider stage_send or stage_interrupt` : '',
@@ -435,6 +435,16 @@ function boardText(b: Record<string, any>, mail: Array<Record<string, any>>, me:
   ].join('\n')
 }
 
+/** stage_start's description: Claude reads this before choosing an engine and an autonomy. */
+export const startDescription = (ids: string[]) =>
+  `Start an external coding agent as a watched subagent (the user sees every step live in the ModStage panel). ` +
+  `Plugged-in agents: ${ids.join(', ')}. Use this instead of running agent CLIs in Bash. ` +
+  `Runs ask the user before risky actions (autonomy "ask", the default); use "auto" only when the user asked for unattended runs. ` +
+  `Antigravity (headless agy) cannot ask: in "ask" it is read-only (web pages, web search, files in its cwd) and refuses writes, ` +
+  `shell commands and files outside cwd, ending the turn blocked; for those, start it with autonomy "auto", ideally in an isolated folder. ` +
+  `Pass owns (file paths or globs) when several agents share a folder, so each knows its files. ` +
+  `Returns at once with a run id; then stage_wait, stage_send to message it, stage_interrupt to stop it.`
+
 const FILE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
 
 export const register: Register = on => {
@@ -452,12 +462,7 @@ export const register: Register = on => {
     const runId = { type: 'string', description: 'The run id stage_start returned' }
     await $.tool.register({
       name: 'stage_start', isDeferred: false,
-      description:
-        `Start an external coding agent as a watched subagent (the user sees every step live in the ModStage panel). ` +
-        `Plugged-in agents: ${ids.join(', ')}. Use this instead of running agent CLIs in Bash. ` +
-        `Runs ask the user before risky actions (autonomy "ask", the default); use "auto" only when the user asked for unattended runs. ` +
-        `Pass owns (file paths or globs) when several agents share a folder, so each knows its files. ` +
-        `Returns at once with a run id; then stage_wait, stage_send to message it, stage_interrupt to stop it.`,
+      description: startDescription(ids),
       inputSchema: {
         type: 'object', required: ['engine', 'prompt'],
         properties: {
@@ -466,7 +471,7 @@ export const register: Register = on => {
           cwd: { type: 'string', description: 'Absolute folder it works in; default the session folder' },
           model: { type: 'string', description: "Model id for that CLI (stage_agents lists each agent's models); omit for its own default" },
           label: { type: 'string', description: 'Short title for the panel' },
-          autonomy: { type: 'string', enum: ['ask', 'auto'], description: 'ask (default): risky actions wait for the user; auto: answered automatically' },
+          autonomy: { type: 'string', enum: ['ask', 'auto'], description: 'ask (default): risky actions wait for the user (antigravity: read-only, the rest is refused); auto: answered automatically' },
           owns: { type: 'array', items: { type: 'string' }, description: 'Files or globs this run owns (other runs are told not to edit them)' },
           images: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of image files (png, jpg, gif, webp, up to 10 MB) to hand the agent with this text. Codex, Muse, Kimi, Qwen Code and OpenCode take images; Grok and Antigravity refuse them with a reason. When the user drags an image into chat, pass its path.' },
         },
@@ -566,7 +571,8 @@ export const register: Register = on => {
     })
     await $.tool.register({
       name: 'stage_agents', isDeferred: false,
-      description: 'List the agents plugged into ModStage: installed or not, version, whether messages steer or queue, approval notes.',
+      description: 'List the agents plugged into ModStage: installed or not, version, whether messages steer or queue, approval notes ' +
+        '(antigravity: what ask mode lets it do, and when to use auto).',
       inputSchema: { type: 'object', properties: {} },
     })
     await $.command.register({ name: 'modstage', description: 'Open ModStage: watch, message and start Codex, Muse, Grok and more' })
@@ -588,7 +594,10 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: 'ModStage' })
     ensureTimer($)
     await select($, started.id)
-    return text(`Started ${e.engine} run ${started.id} (${started.autonomy === 'auto' ? 'autonomous' : 'asks the user before risky actions'}). ` +
+    const how = started.autonomy === 'auto' ? 'autonomous'
+      : e.engine === 'antigravity' ? 'read-only: it may read web pages and files in its folder; writes and commands are refused'
+      : 'asks the user before risky actions'
+    return text(`Started ${e.engine} run ${started.id} (${how}). ` +
       `The user can watch it in the ModStage panel. Next: stage_wait {run_id: "${started.id}"}, or stage_send to steer it.`)
   }).catch(stageError)
 
