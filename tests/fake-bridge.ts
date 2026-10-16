@@ -18,6 +18,7 @@ export function fakeBridge(on: any, b: Bridge) {
     const url = new URL(e.url)
     const parts = url.pathname.split('/').filter(Boolean)
     const reply = (status: number, body: any) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
+    if (parts[0] === 'runs' && parts.length === 1 && e.init?.method === 'POST') return reply(200, { id: 'new00001', autonomy: 'ask' })
     if (parts[0] === 'runs' && parts.length === 1) return reply(200, { runs: Object.values(b.runs), others: 0 })
     if (parts[0] === 'inbox') return reply(200, { pending: Object.values(b.runs).flatMap((r: any) => r.pending) })
     if (parts[0] === 'claude') {

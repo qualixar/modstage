@@ -7,6 +7,37 @@ export type Usage = {
   input: number; cached: number; output: number; reasoning: number
   context_used: number; context_window: number | null; cost_usd: number | null
 }
+/** One mark per run state, used by the panel tabs and the band above the prompt so they always agree.
+ *  ✓ the turn finished and the run waits for Claude · ○ the run has ended · ✗ failed · ◼ interrupted.
+ *  Running shows the caller's spinner frame (the band has no clock, so it passes a fixed ✻). */
+export function statusGlyph(status: string, spin = '✻'): string {
+  if (status === 'running' || status === 'starting') return spin
+  return status === 'idle' ? '✓' : status === 'error' ? '✗' : status === 'interrupted' ? '◼' : '○'
+}
+
+// The band has room for a few runs: the ones that need attention first, newest first within each group.
+const BAND_RANK: Record<string, number> = { running: 0, starting: 0, idle: 1, error: 2, interrupted: 3 }
+export function bandRuns<T extends { status: string }>(runs: T[], max = 5): { shown: T[]; hidden: number } {
+  const ranked = runs.map((r, i) => ({ r, i })).sort((a, b) =>
+    (BAND_RANK[a.r.status] ?? 4) - (BAND_RANK[b.r.status] ?? 4) || b.i - a.i)
+  return { shown: ranked.slice(0, max).map(x => x.r), hidden: Math.max(0, runs.length - max) }
+}
+
+/** The header's live dots: one per agent that has runs now, in first-run order, never a fixed list.
+ *  ● pulsing = one of its runs is working · ● = waiting for Claude · ○ = all of its runs have ended. */
+export type EngineDot = { engine: string; colour: string; count: number; working: boolean; open: boolean }
+export function engineDots(runs: Array<{ engine: string; status: string; color?: string | null }>): EngineDot[] {
+  const dots = new Map<string, EngineDot>()
+  for (const r of runs) {
+    const d = dots.get(r.engine) ?? { engine: r.engine, colour: r.color ?? ENGINE[r.engine] ?? '#CDD6F4', count: 0, working: false, open: false }
+    d.count += 1
+    d.working ||= r.status === 'running' || r.status === 'starting'
+    d.open ||= statusGlyph(r.status) !== '○'
+    dots.set(r.engine, d)
+  }
+  return [...dots.values()]
+}
+
 export type RunView = {
   id: string; engine: string; model: string | null; label: string; cwd: string
   status: string; activity: string; elapsed_s: number; usage: Usage; error: string | null
@@ -31,7 +62,11 @@ export type Action =
   | { type: 'close'; id: string }
 
 const ACCENT = '#D97757' // Claude's coral
-const ENGINE: Record<string, string> = { codex: '#7AA2F7', muse: '#C792EA', grok: '#E0AF68' }
+// Fallback colours (the bridge sends each run's own colour from the registry; these match it)
+const ENGINE: Record<string, string> = {
+  codex: '#7AA2F7', muse: '#C792EA', grok: '#E0AF68', antigravity: '#8AB4F8', kimi: '#F5C2E7',
+  qwen: '#9ECE6A', opencode: '#FAB387', claude: '#D97757',
+}
 const STATUS: Record<string, string> = {
   running: ACCENT, starting: ACCENT, idle: '#9ECE6A', done: '#7F849C', error: '#F7768E', interrupted: '#E0AF68',
 }
@@ -96,8 +131,15 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
       <Text>
         <Text color={ACCENT} bold>{anyRunning ? spin : '✻'} </Text>
         {'ModStage'.split('').map((ch, i) => <Text key={`t${i}`} bold color={GRADIENT[(i + Math.floor(tick / 2)) % GRADIENT.length]}>{ch}</Text>)}
-        <Text dimColor>  </Text><Text color={ENGINE.codex}>codex</Text><Text dimColor> · </Text><Text color={ENGINE.muse}>muse</Text><Text dimColor> · </Text><Text color={ENGINE.grok}>grok</Text>
       </Text>
+      <Box key="dots" flexDirection="row" columnGap={2} flexShrink={1} overflow="hidden">
+        {engineDots(p.runs).map(d => (
+          <Text key={`dot:${d.engine}`} wrap="truncate-end">
+            <Text color={d.working && !pulse ? '#45475A' : d.colour} bold={d.working}>{d.open ? '●' : '○'}</Text>
+            <Text color={d.open ? d.colour : '#7F849C'}> {d.engine}{d.count > 1 ? ` ${d.count}` : ''}</Text>
+          </Text>
+        ))}
+      </Box>
       <Text>
         <Text color={live ? (pulse ? '#9ECE6A' : '#5F7F45') : '#F7768E'}>●</Text>
         <Text dimColor> {live ? 'live' : p.age < 0 ? 'connecting' : `stalled ${p.age}s`} · {p.runs.length} run{p.runs.length === 1 ? '' : 's'}</Text>
@@ -109,11 +151,11 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
   const tabs = (
     <Box key="tabs" flexDirection="row" flexWrap="wrap" columnGap={1} paddingX={1}>
       {p.runs.length === 0
-        ? <Text dimColor>No runs yet. Ask Claude to hand a task to Codex, Muse or Grok.</Text>
+        ? <Text dimColor>No runs yet. Start one with "Start an agent", or ask Claude to hand a task to any installed agent.</Text>
         : p.runs.map(r => {
             const on = r.id === p.selected
             const running = r.status === 'running' || r.status === 'starting'
-            const glyph = running ? spin : r.status === 'idle' ? '✓' : r.status === 'error' ? '✗' : r.status === 'interrupted' ? '◼' : '○'
+            const glyph = statusGlyph(r.status, spin)
             const c = r.color ?? ENGINE[r.engine] ?? '#CDD6F4'
             return (
               <Box key={`tab:${r.id}`} flexDirection="row" backgroundColor={on ? '#313244' : undefined} paddingRight={1}>
