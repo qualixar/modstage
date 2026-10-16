@@ -2,6 +2,12 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## Unreleased
+
+### Fixed
+
+- **Antigravity research in ask mode no longer stops at the first web read.** Headless agy cannot ask, and since agy began asking before every URL read, an ask run refused `read_url_content` and ended blocked. Each ask run now gets a ModStage-owned, read-only agy project (removed when the run ends): web pages, web search and files in its folder are allowed; writes, shell commands and files outside its folder are refused. A refusal names the refused step and says to restart with autonomy `auto`, ideally in an isolated folder, in `stage_wait`, `stage_status`, the run card and the message box. `stage_start` and `stage_agents` explain this before a run starts.
+
 ## 0.0.1 - 2026-10-17
 
 First public release.

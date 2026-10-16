@@ -244,8 +244,9 @@ DEGRADED = {
     **{(a, "resume"): "restarts a fresh process with a recap of the run, not the CLI's own session resume" for a in BRIDGE_AGENTS},
 }
 NA = {
-    ("antigravity", "approval"): "headless agy cannot ask (it refuses and reports denied_actions); ModStage shows each "
-                                 "refusal, marks the run blocked, and says so before Start",
+    ("antigravity", "approval"): "headless agy cannot ask (it refuses and reports denied_actions). Ask runs are read-only "
+                                 "through a per-run agy project (web reads, web search, files in cwd); ModStage shows each "
+                                 "refusal, marks the run blocked with the way out (autonomy auto), and says so before Start",
     **{(a, "queued"): "steers natively; nothing queues" for a in NATIVE_STEER},
     ("grok", "images"): "Grok's ACP initialize says promptCapabilities.image = false: ModStage refuses with that reason",
     ("antigravity", "images"): "agy's print mode takes text only (no verified image input): ModStage refuses with a reason",

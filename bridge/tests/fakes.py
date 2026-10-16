@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("MODSTAGE_HOME", tempfile.mkdtemp())
+os.environ.setdefault("MODSTAGE_AGY_PROJECTS", tempfile.mkdtemp())  # never the real ~/.gemini
 os.environ["MODSTAGE_SLM_MESH"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
