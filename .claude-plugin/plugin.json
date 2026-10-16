@@ -1,0 +1,24 @@
+{
+  "name": "modstage",
+  "version": "0.0.1",
+  "description": "Claude Code mod: run Codex, Grok, Muse, Antigravity and Claude subagents side by side, watch every step, steer them mid-run",
+  "author": {
+    "name": "Varun Pratap Bhardwaj",
+    "url": "https://github.com/qualixar"
+  },
+  "homepage": "https://github.com/qualixar/modstage",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-code-mod",
+    "subagents",
+    "multi-agent",
+    "codex",
+    "grok",
+    "muse",
+    "antigravity",
+    "observability",
+    "ai-reliability-engineering"
+  ],
+  "types": "./types/index.d.ts"
+}

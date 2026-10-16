@@ -1,0 +1,27 @@
+# Changelog
+
+All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
+
+## 0.0.1 - 2026-10-17
+
+First public release.
+
+### Added
+
+- **Eight agents in one Claude Code panel:** Codex (`app-server`), Muse (`serve`), Grok, Kimi, Qwen Code and OpenCode (Agent Client Protocol), Antigravity (stream-json print mode), and Claude Code's own subagents. Live tool calls, edits, messages and thinking per run, with tokens, context and cost where the CLI reports them.
+- **Steering:** messages join a running turn on Codex and Muse; for the other agents a message is held and shown as queued, and **Interrupt and send now** ends the turn so it runs at once.
+- **Needs-you inbox:** agents' permission requests wait for Allow, Allow for this run or Deny; the card scrolls into view on arrival, the band's "needs you" button jumps to it, and no answer in 10 minutes is a deny. The message box refuses free text while an approval waits.
+- **Claude Code tools:** `stage_start`, `stage_wait` (reports `waiting_on_user`, can wait through approvals), `stage_send` (with images and `now`), `stage_decide` (answer an approval only on the user's own words), `stage_status`, `stage_agents`, `stage_interrupt`, `stage_close`.
+- **Per-session runs:** each Claude Code session sees and controls only the runs it started.
+- **Coordination board per folder:** file claims as leases with denied conflicts, messages between agents framed as information, `STATE.md`, `modstage-cli`, and an optional mirror to SuperLocalMemory's local mesh.
+- **Claude as a board peer:** `stage_board`, `stage_post`, `stage_claim`, `stage_release`; agents can message Claude, and Claude's own Edit and Write stop at files an agent has claimed.
+- **Model pickers** from each CLI's own list, including Muse (`model/list`), Kimi (its configured aliases) and OpenCode (ACP config option); a model a CLI's flag ignores is set through ACP.
+- **Images** for Codex, Muse, Kimi, Qwen Code and OpenCode; Grok and Antigravity refuse with a reason.
+- **Honest states:** Antigravity's headless refusals are shown and the run marked blocked; a turn where a CLI reports nothing is flagged; long quiet turns show "still running".
+- **Conformance harness** (`bridge/tests/`) driving every adapter through protocol fakes, and `docs/PARITY-MATRIX.md` generated from it; `scripts/smoke_real_cli.py` for real CLIs.
+
+### Security
+
+- Localhost-only bridge with a per-install token (0600, in a 0700 folder) checked before any request body is read; bodies capped; socket timeouts.
+- Python started inside an agent's folder never imports from that folder; board files refuse symlinks and are written without following links.
+- Agent-written text is flattened or fenced before Claude reads it. See [SECURITY.md](SECURITY.md).

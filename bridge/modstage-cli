@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# ModStage coordination board from a shell. See: modstage-cli --help
+here="$(cd "$(dirname "$0")" && pwd)"
+# Never let the current folder (an agent's repository) shadow a module: see SAFE_LAUNCH in coordination.py.
+exec python3 -c "import sys; sys.path[:] = [p for p in sys.path if p not in ('', '.')]; sys.path.insert(0, sys.argv.pop(1)); m = sys.argv.pop(1); import runpy; runpy.run_module(m, run_name='__main__', alter_sys=True)" "$here" modstage.cli "$@"

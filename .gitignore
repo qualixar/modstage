@@ -1,0 +1,22 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+.claude-plugin/types/
+.mcpb-cache/
+node_modules/
+assets/logo/options/
+
+# coordination state written into any folder agents work in
+.modstage/
+.agent-theatre/
+.image-gen-mcp/
+
+# internal working notes: kept locally, never published
+docs/BRIEF-*.md
+docs/DEMO-PLAN.md
+docs/RECORDING-GUIDE.md
+docs/RESEARCH-*.md
+docs/PUBLISH-CHECKLIST.md
+docs/DESIGN-*.md
+docs/PHASE3-*.md

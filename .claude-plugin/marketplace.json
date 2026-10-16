@@ -1,0 +1,15 @@
+{
+  "name": "modstage",
+  "owner": {
+    "name": "Qualixar",
+    "url": "https://github.com/qualixar"
+  },
+  "plugins": [
+    {
+      "name": "modstage",
+      "source": "./",
+      "description": "Qualixar ModStage: Codex, Grok, Muse, Antigravity and Claude subagents, live and steerable in Claude Code"
+    }
+  ],
+  "description": "Qualixar ModStage: Codex, Grok, Muse, Antigravity and Claude subagents, live and steerable in Claude Code"
+}
