@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bandRuns, drawStage, statusGlyph } from '../hooks/ui/stage.tsx'
+import { bandRuns, drawStage, engineDots, statusGlyph } from '../hooks/ui/stage.tsx'
 import { fakeBridge } from './fake-bridge.ts'
 import type { Bridge } from './fake-bridge.ts'
 
@@ -68,6 +68,33 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(await ui.find({ text: /\+2 more/ })).toBeTruthy()
     expect(await ui.find({ text: '✗' })).toBeTruthy()
     expect(await ui.find({ text: '◉' })).toBeUndefined()  // the band's old running mark is gone
+    await ui.unmount()
+  })
+}
+
+// The header named codex · muse · grok whatever ran; it now shows a live dot per agent that has runs.
+test('header dots come from the runs: one per agent, counted, working and ended marked', () => {
+  const dots = engineDots([...EIGHT, run('g1', 'antigravity', 'error')])
+  expect(dots.map(d => [d.engine, d.count, d.working, d.open])).toEqual([
+    ['codex', 2, false, true], ['muse', 1, false, true], ['claude', 5, true, true], ['antigravity', 1, false, true],
+  ])
+  expect(engineDots([run('x', 'kimi', 'done')])[0]).toMatchObject({ engine: 'kimi', open: false, colour: '#F5C2E7' })
+  expect(engineDots([])).toEqual([])
+})
+
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`header shows live agent dots and no fixed agent list (${surface})`, async ($, on) => {
+    const runs = [run('g1', 'antigravity', 'running'), run('q1', 'qwen', 'done')]
+    const props = { runs: runs as any, selected: 'g1', feed: [], partial: '', age: 1, problem: '', home: '/home/test', canType: true }
+    on('ui.render', { component: 'Pane', requestId: 'hdr' } as any, async ($$: any, e: any) =>
+      drawStage($$.ui.resolve(e), props as any, 0, {}, () => {}))
+    const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'hdr',
+      props: {} as any, viewport: { columns: 200, rows: 44 } })
+    expect(await ui.find({ key: 'dots' })).toBeTruthy()
+    expect(await ui.find({ text: /● antigravity/ })).toBeTruthy()  // working
+    expect(await ui.find({ text: /○ qwen/ })).toBeTruthy()  // ended
+    expect(await ui.find({ text: /[●○] (codex|muse|grok)/ })).toBeUndefined()  // no agent that has no runs
+    expect(await ui.find({ text: /codex · muse · grok/ })).toBeUndefined()
     await ui.unmount()
   })
 }

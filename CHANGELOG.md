@@ -7,6 +7,7 @@ All notable changes to ModStage are recorded here. The format follows [Keep a Ch
 ### Fixed
 
 - **The band above the message box now matches the panel.** It showed only the newest five runs, so earlier Codex and Muse runs vanished from it, and it marked ended runs ✓ like runs waiting for Claude. Both now use one set of marks (✓ waiting, ○ ended, ✗ failed, ◼ interrupted, ✻ working); the band lists working runs first, then waiting, failed and ended ones, and says "+N more" when some do not fit.
+- **The panel header shows who is actually running.** It always read "codex · muse · grok", whatever ran. It now shows one dot per agent that has runs, in that agent's colour with a count: the dot pulses while one of its runs works, and turns ○ when all of its runs have ended. The empty-panel hint and the `/modstage` description no longer name only three agents, and the panel knows all eight agents' colours.
 
 ## 0.0.2 - 2026-10-17
 

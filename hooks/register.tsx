@@ -575,7 +575,7 @@ export const register: Register = on => {
         '(antigravity: what ask mode lets it do, and when to use auto).',
       inputSchema: { type: 'object', properties: {} },
     })
-    await $.command.register({ name: 'modstage', description: 'Open ModStage: watch, message and start Codex, Muse, Grok and more' })
+    await $.command.register({ name: 'modstage', description: 'Open ModStage: watch, message and start Codex, Muse, Grok, Antigravity, Kimi, Qwen Code, OpenCode and Claude subagents' })
     ensureTimer($)
     return next(e)
   })
