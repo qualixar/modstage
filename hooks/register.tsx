@@ -7,7 +7,7 @@ import type { Json } from './bridge.ts'
 import { blankUsage, CLAUDE_COLOUR, describe, liveClaude, MAX_EVENTS, MAX_RUNS } from './claude-agents.ts'
 import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup } from './ui/native.tsx'
 import type { NativeAction } from './ui/native.tsx'
-import { drawStage } from './ui/stage.tsx'
+import { bandRuns, drawStage, statusGlyph } from './ui/stage.tsx'
 import type { Action, StageProps } from './ui/stage.tsx'
 
 const PANE = 'modstage'
@@ -713,6 +713,7 @@ export const register: Register = on => {
     const list = [...((await read($, runs)) as RunSummary[]), ...liveClaude((await read($, claudeRuns)) as RunSummary[])]
     const waiting = ((await read($, inbox)) as Pending[]).length
     const working = list.filter(r => RUNNING.has(r.status))
+    const band = bandRuns(list)
     const open = async (id?: string) => {
       ensureTimer($)
       if (id) await select($, id)
@@ -731,13 +732,14 @@ export const register: Register = on => {
         {waiting ? <Button key="band-needs" label={`⚑ ${waiting} need${waiting === 1 ? 's' : ''} you`} variant="primary"
           onPress={() => openInbox()} /> : null}
         <Text dimColor>{list.length === 0 ? '· no runs yet' : `· ${working.length} working · ${list.length} run${list.length === 1 ? '' : 's'}`}</Text>
-        {list.slice(-5).map(r => (
+        {band.shown.map(r => (
           <Box key={`band:${r.id}`} flexDirection="row">
-            <Text color={r.color ?? '#CDD6F4'}>{RUNNING.has(r.status) ? '◉' : r.status === 'error' ? '✗' : '✓'}</Text>
+            <Text color={r.color ?? '#CDD6F4'}>{statusGlyph(r.status)}</Text>
             <Button key={`bandbtn:${r.id}`} label={r.engine} plain hover={{ color: r.color ?? '#CDD6F4' } as any}
               onPress={() => open(r.engine === 'claude' ? `claude:${r.id}` : r.id)} />
           </Box>
         ))}
+        {band.hidden ? <Button key="band-more" label={`+${band.hidden} more`} plain onPress={() => open()} /> : null}
         <Button key="stage-open-btn" label="Open" variant="primary" onPress={() => open()} />
       </Box>
     )

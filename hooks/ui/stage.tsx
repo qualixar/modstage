@@ -7,6 +7,22 @@ export type Usage = {
   input: number; cached: number; output: number; reasoning: number
   context_used: number; context_window: number | null; cost_usd: number | null
 }
+/** One mark per run state, used by the panel tabs and the band above the prompt so they always agree.
+ *  ✓ the turn finished and the run waits for Claude · ○ the run has ended · ✗ failed · ◼ interrupted.
+ *  Running shows the caller's spinner frame (the band has no clock, so it passes a fixed ✻). */
+export function statusGlyph(status: string, spin = '✻'): string {
+  if (status === 'running' || status === 'starting') return spin
+  return status === 'idle' ? '✓' : status === 'error' ? '✗' : status === 'interrupted' ? '◼' : '○'
+}
+
+// The band has room for a few runs: the ones that need attention first, newest first within each group.
+const BAND_RANK: Record<string, number> = { running: 0, starting: 0, idle: 1, error: 2, interrupted: 3 }
+export function bandRuns<T extends { status: string }>(runs: T[], max = 5): { shown: T[]; hidden: number } {
+  const ranked = runs.map((r, i) => ({ r, i })).sort((a, b) =>
+    (BAND_RANK[a.r.status] ?? 4) - (BAND_RANK[b.r.status] ?? 4) || b.i - a.i)
+  return { shown: ranked.slice(0, max).map(x => x.r), hidden: Math.max(0, runs.length - max) }
+}
+
 export type RunView = {
   id: string; engine: string; model: string | null; label: string; cwd: string
   status: string; activity: string; elapsed_s: number; usage: Usage; error: string | null
@@ -113,7 +129,7 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
         : p.runs.map(r => {
             const on = r.id === p.selected
             const running = r.status === 'running' || r.status === 'starting'
-            const glyph = running ? spin : r.status === 'idle' ? '✓' : r.status === 'error' ? '✗' : r.status === 'interrupted' ? '◼' : '○'
+            const glyph = statusGlyph(r.status, spin)
             const c = r.color ?? ENGINE[r.engine] ?? '#CDD6F4'
             return (
               <Box key={`tab:${r.id}`} flexDirection="row" backgroundColor={on ? '#313244' : undefined} paddingRight={1}>
