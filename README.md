@@ -48,6 +48,14 @@ Every cell above has a test behind it. The full agent-by-control table, with eac
 
 ## Install
 
+One line, in any terminal (the same install for the terminal, the desktop app and VS Code):
+
+```bash
+claude plugin marketplace add qualixar/modstage && claude plugin install modstage@modstage
+```
+
+Already installed? Update with `claude plugin marketplace update modstage && claude plugin update modstage@modstage`.
+
 You need Claude Code with mods (2.1.287 or newer in the terminal, 2.1.286 or newer in the desktop app's Code tab), Python 3.10 or newer, and at least one of the agent CLIs above, installed and signed in.
 
 In a Claude Code session:
