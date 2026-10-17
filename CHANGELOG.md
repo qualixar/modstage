@@ -2,6 +2,13 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.9 - 2026-10-17
+
+### Fixed
+
+- **`stage_board` names this session's own board peer.** Registering a session now returns its peer id alongside the key, so Claude sees "you are claude-<id>" instead of a placeholder.
+- **The bridge guard no longer blocks text that only mentions the bridge.** Heredoc bodies (text being written to a file) and header names on their own are not bridge calls, so writing or searching ModStage's own code works again. Reading the token file and calling the bridge port from Bash are still refused.
+
 ## 0.0.8 - 2026-10-17
 
 A full session-isolation audit, run as two independent reviews plus live attacks against a test bridge, found that a ModStage agent could act as its own parent and that one session's agents could reach another's. Every finding, from critical to low, is fixed here. `scripts/isolation-gate.py` now runs all 37 attacks against a real bridge before each release.

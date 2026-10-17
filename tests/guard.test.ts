@@ -85,6 +85,14 @@ test('housekeeping commands and heredoc text are not blocked', async ($, on) => 
   expect(ran).toBe(cmds.length)
 })
 
+test('text being written that names the bridge headers is not a bridge call', async ($, on) => {
+  let ran = 0
+  on('tool.call', { tool: 'Bash' }, () => { ran += 1; return { result: { stdout: '', stderr: '', interrupted: false } } as any })
+  const cmds = [`python3 - <<'EOF'\nheaders = {"X-ModStage-Token": "t" * 48}\nEOF`, 'grep -rn "X-ModStage-Session" bridge/']
+  for (const command of cmds) await $.tool.call({ tool: 'Bash', command } as any)
+  expect(ran).toBe(cmds.length)
+})
+
 test("the bridge's token file and port are not used directly from Bash or Read", async ($, on) => {
   let ran = 0
   on('tool.call', { tool: 'Bash' }, () => { ran += 1; return { result: { stdout: '', stderr: '', interrupted: false } } as any })

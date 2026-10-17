@@ -156,6 +156,12 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(code, 200)
         return {"X-ModStage-Token": "t" * 48, "X-ModStage-Session": body["key"], "Content-Type": "application/json"}
 
+    def test_registration_names_the_sessions_board_peer(self):
+        code, body = self.req("POST", "/sessions", json.dumps({"session": "sess-P"}).encode(),
+                              {"X-ModStage-Token": "t" * 48, "Content-Type": "application/json"})
+        from modstage.claude_peer import peer_id
+        self.assertEqual(body.get("peer"), peer_id(server.owner_of(body["key"])))
+
     def test_another_session_cannot_read_or_drive_a_run(self):
         a, b = self.scope("sess-A"), self.scope("sess-B")
         run = make_run("codex")

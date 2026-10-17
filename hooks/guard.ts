@@ -123,8 +123,9 @@ export function agentLaunchedBy(command: string, depth = 0): string {
   return ''
 }
 
-/** True when a Bash command reaches the bridge's token file or port directly. */
+/** True when a Bash command reaches the bridge's token file or port directly. Heredoc bodies are text being
+ *  written, not commands, and a header name alone reaches nothing, so neither counts. */
 export function touchesBridge(command: string, port = '47321'): boolean {
-  return /\.modstage\/token\b/.test(command) || new RegExp(`(127\\.0\\.0\\.1|localhost|0\\.0\\.0\\.0|\\[::1\\]):${port}\\b`).test(command)
-    || /X-ModStage-(Token|Session)/i.test(command)
+  const run = stripHeredocs(command)
+  return /\.modstage\/token\b/.test(run) || new RegExp(`(127\\.0\\.0\\.1|localhost|0\\.0\\.0\\.0|\\[::1\\]):${port}\\b`).test(run)
 }

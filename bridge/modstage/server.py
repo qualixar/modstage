@@ -392,7 +392,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             if parts == ["sessions"]:
-                return self._reply(200, {"key": register_session(str(body.get("session") or ""))})
+                from .claude_peer import peer_id
+                key = register_session(str(body.get("session") or ""))
+                return self._reply(200, {"key": key, "peer": peer_id(owner_of(key))})
             if parts == ["agents", "refresh"]:
                 registry.refresh_models(force=True)
                 return self._reply(200, {"ok": "asking each agent CLI for its models again"})
