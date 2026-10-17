@@ -5,6 +5,7 @@ from __future__ import annotations
 from . import __version__
 
 import json
+import sys
 import os
 import time
 import uuid
@@ -47,11 +48,15 @@ def _args(raw) -> str:
 
 def _stage_tools(run: Run) -> list[str]:
     """The ModStage MCP server as a host setting. Muse 1.4.9 refuses mcpServers in session/start and
-    takes one server per `-c mcpServers.<name>=<json>`; env values must be `${VAR}` references to
-    variables already set, and agent_env puts them in Muse's own environment."""
+    takes one server per `-c mcpServers.<name>=<json>`. Muse treats every env value there as a secret:
+    each must be a whole `${VAR}` naming a variable set in Muse's own environment, or Muse refuses to
+    start. Muse is given agent_env only (never PYTHONPATH / PYTHONSAFEPATH, which would leak into its
+    shell), so only those names are referenced; the launcher's -P gives the PYTHONSAFEPATH protection."""
     server = mcp_server(run)
-    entry = {"mode": "optional", "command": server["command"], "args": server["args"],
-             "env": {key: "${" + key + "}" for key in server["env"]}}
+    given = agent_env(run)
+    args = (["-P"] if sys.version_info >= (3, 11) else []) + server["args"]
+    entry = {"mode": "optional", "command": server["command"], "args": args,
+             "env": {key: "${" + key + "}" for key in server["env"] if key in given}}
     return ["-c", "mcpServers.modstage=" + json.dumps(entry)]
 
 
@@ -60,9 +65,10 @@ class MuseAdapter:
         self.run = run
         self.session_id: str | None = None
         self.turn_id: str | None = None
+        self.stderr_tail: list[str] = []
         self.rpc = StdioRpc(argv(run.spec, run.model) + _stage_tools(run), run.cwd,
                             on_notify=self._notify, on_request=self._request,
-                            on_exit=self._exited, on_stderr=lambda line: None, jsonrpc=True,
+                            on_exit=self._exited, on_stderr=self._stderr, jsonrpc=True,
                             env=agent_env(run))
 
     # ---- control ----
@@ -199,11 +205,15 @@ class MuseAdapter:
 
         self.run.request_approval(subject.get("kind") or "tool", title, f"{p.get('toolName', 'tool')}: {what}", answer, paths)
 
+    def _stderr(self, line: str) -> None:
+        self.stderr_tail = (self.stderr_tail + [line.rstrip()])[-5:]
+
     def _exited(self, code: int) -> None:
         if self.run.adapter is not self:  # replaced by a restart or closed: not this run's news
             return
         if self.run.status in ("starting", "running"):
-            self.run.add("error", f"muse serve exited with code {code}")
+            said = " | ".join(line for line in self.stderr_tail if line)[:400]
+            self.run.add("error", f"muse serve exited with code {code}" + (f": {said}" if said else ""))
             self.run.set(status="error", error=f"exited {code}", activity="exited")
         elif self.run.status == "idle":
             self.run.set(status="done", activity="closed")

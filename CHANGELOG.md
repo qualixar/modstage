@@ -2,6 +2,15 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.7 - 2026-10-17
+
+### Fixed
+
+- **Muse runs start again.** Muse 1.4.10 refuses to start when its MCP setting references an environment variable it was not given ("secret leaves need exactly one whole-value `${VAR}` naming a set variable"). Since 0.0.3 the ModStage tools setting referenced `${PYTHONPATH}` and `${PYTHONSAFEPATH}`, which ModStage deliberately keeps out of agent environments, so every Muse run failed at start with "muse serve exited with code 2". The setting now references only the `MODSTAGE_*` variables Muse is given; the tool server keeps its shadowing protection through the safe launcher plus Python's `-P` (3.11+).
+- **A failed Muse start says why.** The run log now carries Muse's last error lines after "muse serve exited with code N".
+
+Tests: `bridge/tests/test_muse_args.py` (every reference names a variable Muse is given; a live `muse serve` accepts the setting).
+
 ## 0.0.6 - 2026-10-17
 
 ### Fixed
