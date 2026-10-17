@@ -2,6 +2,12 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.5 - 2026-10-17
+
+### Added
+
+- **Stale writes are rejected at the write.** The bridge checks a run's fence on every write it can intercept: Codex file changes (autonomous Codex runs now use approval policy `untrusted` so each edit comes through the bridge) and ACP `fs/write_text_file`, which ModStage now serves for Grok, Kimi, Qwen Code and OpenCode (`fs/read_text_file` too, both limited to the run's folder). A run whose lease lapsed and was taken over by another run is refused even if it was allowed to edit earlier; both runs get a conflict line. "Allow for this run" on a file edit is no longer carried forward for Codex, so each edit is checked. Muse and Antigravity are unchanged: they write files themselves, so conflicts are still detected afterwards. Test: `bridge/tests/test_write_fence.py`.
+
 ## 0.0.4 - 2026-10-17
 
 ### Security

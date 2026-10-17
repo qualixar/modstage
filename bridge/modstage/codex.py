@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from . import __version__
 
 from .coordination import agent_env, brief, mcp_server
@@ -20,6 +22,7 @@ class CodexAdapter:
         self.run = run
         self.thread_id: str | None = None
         self.turn_id: str | None = None
+        self.item_paths: dict[str, list[str]] = {}  # fileChange item id -> files it will change (v2 approvals carry no paths)
         self.rpc = StdioRpc(
             argv(run.spec, None), run.cwd,
             on_notify=self._notify, on_request=self._request,
@@ -33,8 +36,11 @@ class CodexAdapter:
         self.rpc.call("initialize", {"clientInfo": {"name": "modstage", "version": __version__},
                                      "capabilities": None})
         self.rpc.notify("initialized")
-        # ask runs: Codex asks before anything outside its sandbox, and those asks go to the Needs-you inbox
-        params = {"cwd": run.cwd, "approvalPolicy": "never" if run.autonomy == "auto" else "on-request",
+        # ask runs: Codex asks before anything outside its sandbox, and those asks go to the Needs-you inbox.
+        # auto runs: "untrusted" makes Codex send every file change (and every command) through the bridge, which
+        # answers at once but runs the board's write fence first; "never" would let edits bypass it. Checked against
+        # codex 0.156 on 17 Oct 2026: an in-workspace apply_patch sends item/fileChange/requestApproval.
+        params = {"cwd": run.cwd, "approvalPolicy": "untrusted" if run.autonomy == "auto" else "on-request",
                   "sandbox": "workspace-write", "developerInstructions": brief(run),
                   # our board tools only touch the coordination board, so they never need a prompt
                   "config": {"mcp_servers": {"modstage": {**mcp_server(run), "default_tools_approval_mode": "approve"}}}}
@@ -117,7 +123,10 @@ class CodexAdapter:
                 output = item.get("aggregatedOutput") or ""
                 run.add("result", f"exit {item.get('exitCode')}", _short(output, 1500))
                 run.set(activity="thinking")  # the command is over: do not keep showing it
+        elif kind == "fileChange" and not done:
+            self.item_paths[item.get("id", "")] = [c.get("path") for c in item.get("changes") or [] if c.get("path")]
         elif kind == "fileChange" and done:
+            self.item_paths.pop(item.get("id", ""), None)
             changed = [c.get("path") for c in item.get("changes") or [] if c.get("path")]
             run.add("edit", f"edited {', '.join(changed) or '?'}")
             run.touch(changed)
@@ -162,7 +171,7 @@ class CodexAdapter:
             detail = f"command: {command}" + (f"\nwhy: {reason}" if reason else "")
             paths: list[str] = []
         elif method in ("item/fileChange/requestApproval", "applyPatchApproval"):
-            paths = list((p.get("fileChanges") or {}).keys())
+            paths = list((p.get("fileChanges") or {}).keys()) or list(self.item_paths.get(p.get("itemId", ""), []))
             title = f"change {', '.join(paths[:3]) or 'files'}" + (f" (+{len(paths) - 3} more)" if len(paths) > 3 else "")
             detail = p.get("reason") or (f"write access under {p['grantRoot']}" if p.get("grantRoot") else "")
         else:
@@ -170,8 +179,18 @@ class CodexAdapter:
             self.rpc.answer(rid, error="modstage does not serve this request")
             return
         legacy = method in ("execCommandApproval", "applyPatchApproval")
+        fenced = [x for x in paths if self._inside(x)]
 
         def answer(choice: str) -> None:
+            if choice != "deny" and fenced:
+                # the fence at the write: re-checked now, whatever was allowed before and however long a person took
+                for path in fenced:
+                    ok, _ = self.run.guard_write(path)
+                    if not ok:
+                        choice = "deny"
+                        break
+                else:
+                    choice = "allow"  # never "for session": the next edit must pass the fence again
             if legacy:
                 decision = {"allow": "approved", "allow_session": "approved_for_session"}.get(choice, "denied")
             else:
@@ -179,6 +198,12 @@ class CodexAdapter:
             self.rpc.answer(rid, {"decision": decision})
 
         self.run.request_approval("command" if not paths else "edit", title, detail, answer, paths)
+
+    def _inside(self, path: str) -> bool:
+        """Only files in the run's folder are on its board; others (a temp file) are not fenced."""
+        root = os.path.realpath(self.run.cwd)
+        full = os.path.realpath(os.path.join(self.run.cwd, path))
+        return full == root or full.startswith(root + os.sep)
 
     def _exited(self, code: int) -> None:
         if self.run.adapter is not self:  # replaced by a restart or closed: not this run's news

@@ -112,6 +112,7 @@ When agents share a folder, ModStage gives it a board in `<folder>/.modstage/` (
 
 - each agent gets coordination tools in its session: `stage_claim`, `stage_release`, `stage_send`, `stage_inbox`, `stage_board_read` and more, with `modstage-cli` for agents without tool support
 - claims are leases; a conflicting exclusive claim is **denied**, not just warned about, and editing a file claims it
+- fence numbers are checked **at the write**, not just at claim or approval time: if a run's lease lapsed and another run took the file, the first run's write is rejected even if it was allowed to edit earlier. This holds for Codex edits and for ACP agents (Grok, Kimi, Qwen Code, OpenCode) that write through ModStage; Muse and Antigravity write files themselves, so for them ModStage still detects and flags the conflict afterwards
 - messages arrive at the start of the receiver's next turn, framed as information from another agent, never as instructions
 - Claude Code joins as `claude-<session>`: agents can message it, it reads them with `stage_board`, and its own Edit and Write calls are refused on a file an agent holds (with no bridge running, nothing is blocked)
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from . import __version__
 
 import json
+import os
 import threading
 
 from .coordination import agent_env, brief, mcp_server
@@ -69,7 +70,7 @@ class AcpAdapter:
         run = self.run
         init = self.rpc.call("initialize", {
             "protocolVersion": 1,
-            "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
+            "clientCapabilities": {"fs": {"readTextFile": True, "writeTextFile": True}, "terminal": False},
             "clientInfo": {"name": "modstage", "version": __version__},
         }, timeout=90)
         self.can_image = bool(((init.get("agentCapabilities") or {}).get("promptCapabilities") or {}).get("image"))
@@ -283,6 +284,9 @@ class AcpAdapter:
 
     def _request(self, msg: dict) -> None:
         method, params = msg["method"], msg.get("params") or {}
+        if method in ("fs/write_text_file", "fs/read_text_file"):
+            self._fs(msg["id"], method, params)
+            return
         if method != "session/request_permission":
             self.run.add("warning", f"{self.run.engine} asked {method}; refused")
             self.rpc.answer(msg["id"], error="modstage does not serve this request")
@@ -307,6 +311,46 @@ class AcpAdapter:
             title = f"{title} `{_short(what, 160)}`"
         self.run.request_approval(call.get("kind") or "tool", title, _short(what, 600),
                                   answer, paths)
+
+    def _confined(self, path: str) -> str | None:
+        """The real path when it is inside the run's folder (links resolved, so a planted link cannot lead out)."""
+        if not isinstance(path, str) or not os.path.isabs(path):
+            return None
+        root, full = os.path.realpath(self.run.cwd), os.path.realpath(path)
+        return full if full == root or full.startswith(root + os.sep) else None
+
+    def _fs(self, rid, method: str, params: dict) -> None:
+        """The agent writes (or reads) through us. A write is made only after the board's fence check passes."""
+        run = self.run
+        full = self._confined(params.get("path"))
+        if full is None:
+            run.add("warning", f"{run.engine} asked to {method.split('/')[1].replace('_', ' ')} outside the run's folder; refused")
+            self.rpc.answer(rid, error=f"{params.get('path')} is outside the run's folder")
+            return
+        try:
+            if method == "fs/read_text_file":
+                with open(full, encoding="utf-8") as f:
+                    lines = f.read().splitlines(keepends=True)
+                start = max(int(params.get("line") or 1) - 1, 0)
+                end = start + int(params["limit"]) if params.get("limit") else None
+                self.rpc.answer(rid, {"content": "".join(lines[start:end])})
+                return
+            content = params.get("content")
+            if not isinstance(content, str):
+                self.rpc.answer(rid, error="content must be a string")
+                return
+            ok, reason = run.guard_write(full)
+            if not ok:
+                self.rpc.answer(rid, error=f"write rejected by the ModStage board: {reason}")
+                return
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+            run.add("edit", f"wrote {os.path.relpath(full, run.cwd)}")
+            run.touch([full])
+            self.rpc.answer(rid, {})
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            self.rpc.answer(rid, error=f"{method}: {exc}")
 
     def _exited(self, code: int) -> None:
         if self.run.adapter is not self:  # replaced by a restart or closed: not this run's news

@@ -418,19 +418,25 @@ def wake(run: Run) -> None:
         run.add("warning", f"could not wake this run: {exc}")
 
 
+def _renew_working() -> None:
+    """Renew the leases of runs that are working right now. An idle, interrupted or finished run is NOT renewed:
+    its leases lapse, which is what lets another run take the file and makes the write-time fence meaningful."""
+    for run in list(RUNS.values()):
+        if run.status in ("starting", "running"):
+            try:
+                board_for(run.cwd).renew(run.id)
+                board_for(run.cwd).heartbeat(run.id, "working")
+                bg(MESH.heartbeat, run)
+            except Exception:
+                pass
+
+
 def _keeper() -> None:
     """Every 30 s: renew leases of working runs, heartbeat them, and sweep old board rows."""
     import time
     while True:
         time.sleep(30)
-        for run in list(RUNS.values()):
-            if run.status in ("starting", "running"):
-                try:
-                    board_for(run.cwd).renew(run.id)
-                    board_for(run.cwd).heartbeat(run.id, "working")
-                    bg(MESH.heartbeat, run)
-                except Exception:
-                    pass
+        _renew_working()
         tick = getattr(_keeper, "tick", 0) + 1
         _keeper.tick = tick
         if MESH.state == "unavailable" and tick % 10 == 0:  # retry SLM every 5 minutes
