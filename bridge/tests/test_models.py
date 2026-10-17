@@ -51,9 +51,9 @@ class ParseModelsTest(unittest.TestCase):
         report = {a["id"]: a for a in registry.doctor()["agents"]}
         self.assertTrue(report["opencode"]["takes_model"])
 
-    def test_list_is_capped(self):
+    def test_parsed_list_is_whole(self):
         models, _ = parse_models("lines", "\n".join(f"p/m{i}" for i in range(40)))
-        self.assertEqual(len(models), 16)
+        self.assertEqual(len(models), 40)  # the listing shown is capped (test_model_refresh), the check is not
 
 
 if __name__ == "__main__":
