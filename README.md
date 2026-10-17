@@ -4,7 +4,7 @@
 
 <h1 align="center">Qualixar ModStage</h1>
 
-<p align="center"><b>Run Codex, Grok, Muse, Antigravity, Kimi, Qwen Code, OpenCode and Claude subagents side by side inside Claude Code. Watch every step, steer them mid-run, approve their risky actions from the panel or from chat.</b></p>
+<p align="center"><b>A Claude Code mod that runs Codex, Grok, Muse, Antigravity, Kimi, Qwen Code, OpenCode and Claude as subagents inside Claude Code. Watch every step live, steer them mid-run, approve their risky actions from the panel or from chat.</b></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
@@ -13,11 +13,26 @@
   <img alt="Python 3.10+, standard library only" src="https://img.shields.io/badge/bridge-Python%203.10%2B%2C%20stdlib%20only-3776AB">
 </p>
 
-<!-- HERO GIF goes here: two agents working side by side in the panel (see "Demo" below). -->
+<p align="center">
+  <img src="assets/demo/modstage-hero.gif" alt="ModStage demo: Codex, Grok and Muse running as Claude Code subagents in a live panel; picking a model, approving a risky command, steering an agent mid-run, file claims, and 52 tests passing" width="900">
+</p>
+<p align="center"><sub>Real recordings, no mock-ups. <a href="https://www.youtube.com/watch?v=l3DE44PYMWE">11-minute film: What are Claude Code mods?</a></sub></p>
 
 If you pay for more than one AI coding agent, each one lives in its own terminal. When Claude Code shells out to one of them, you see a command go in and an answer come back, and nothing in between: not the files it touched, not the command it is waiting to run, not the moment it got stuck. ModStage is a Claude Code plugin (a "mod") that brings those coding agents into your Claude Code session as visible, steerable subagents, so Claude Code becomes the orchestrator and every other CLI works where you can see it.
 
 It comes out of our work on AI Reliability Engineering: an agent you cannot observe is an agent you should not trust with your repository.
+
+## Demo
+
+<!-- DEMO VIDEO: drag modstage-demo-1min.mp4 into this spot in GitHub's web editor (it becomes a user-attachments video with an inline player), then delete this comment. -->
+
+One minute with sound: ModStage running Codex, Grok and Muse as Claude Code subagents, the approval inbox, steering an agent mid-run, file claims, and the SuperLocalMemory mesh.
+
+The full 11-minute film, [What are Claude Code mods?](https://www.youtube.com/watch?v=l3DE44PYMWE), covers what mods are, the `($, e, next)` idea behind every mod, community mods, a live build with `claude plugin validate` and `claude plugin test`, the security part (mods are not sandboxed), and ModStage.
+
+## What are Claude Code mods?
+
+Claude Code mods, which Anthropic calls Claude Mods, arrived on 1 October 2026 in Claude Code 2.1.287. A mod is a plugin made of JavaScript or TypeScript event handlers that run inside Claude Code: it can watch, rewrite or answer events such as tool calls and prompts, register tools and slash commands, start subagents, and draw panels and bands in the interface. Hooks, skills and MCP servers work from outside Claude Code; a mod works inside it, which is what lets ModStage put other coding agents into your session as watched subagents. Official docs: [code.claude.com/docs/en/plugins/mods/overview](https://code.claude.com/docs/en/plugins/mods/overview).
 
 ## What you get
 
