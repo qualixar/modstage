@@ -2,6 +2,33 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.8 - 2026-10-17
+
+A full session-isolation audit, run as two independent reviews plus live attacks against a test bridge, found that a ModStage agent could act as its own parent and that one session's agents could reach another's. Every finding, from critical to low, is fixed here. `scripts/isolation-gate.py` now runs all 37 attacks against a real bridge before each release.
+
+### Security
+
+- **Runs belong to a session secret, not a session id (critical).** An agent runs as you, so it could read `~/.modstage/token`, learn its parent's session id from its own run summary, and approve its own permission request. The bridge now issues each Claude Code session a random secret (`POST /sessions`). The mod holds it in host memory, never on disk, and sends it as `X-ModStage-Session`. Runs, approvals, the inbox and Claude's board seat belong to the secret's hash. Re-registering a known session id gives a new, empty scope. Run summaries no longer carry the owner.
+- **No "see every run" over HTTP (critical).** A caller that named no session (an old mod copy, or anyone holding the install token) used to see and control every run. Now every `/runs`, `/inbox` and `/claude/*` call needs a registered session; the install token alone reaches nothing. Another session's run answers 404, the same as a run that does not exist.
+- **Agents can no longer message or wake another session's agents (high).** Board messages, `all`, wakes, handoffs and digests reach only the sender's own session's runs and its Claude peer. A message to another session's run is refused.
+- **The board keeps each session's words to itself (high).** Every session in a folder still shares the roster and the claims, so agents never write over each other. Messages, threads, what an agent says it is doing, and log lines that quote them are visible only to their own session. `STATE.md` holds only the shared part, and the route that dumped every board is gone. Existing `board.db` files are migrated in place.
+- **Ownerless runs belong to no one (medium).** They used to be drivable by any session that knew their id.
+- **The install token cannot act as a run on the board (medium).** Only the run's own token can.
+- **Nothing private goes to the SLM mesh (medium).** Only peers (engine and run id) and file locks are mirrored; messages and prompt text no longer are.
+- **The decide gate needs a stated decision (medium).** Any message used to open it ("what time is it?" passed an `allow_session` on `curl … | sh`). Now the user's latest message must state that decision (allow, allow for the rest of the run, or deny), and one message answers one approval. The prompt's text is no longer kept in `$.state`, only the decision it states.
+- **`/clear` no longer orphans runs (medium).** The session's secret stays with the process, so its agents stay attached. The old conversation's Claude subagent tabs, feed and stale hook-envelope id are cleared.
+- **Claude peer ids use 16 hex characters of the scope (low).** They used 8 characters of the session id, and two sessions sharing a prefix shared an inbox.
+- **No counts of other sessions' runs (low).** They are gone from listings, the panel and `stage_status`, and `/health` reports no run count.
+- **The Bash guard covers every engine and wrapper (low).** It tokenizes the command and peels off `env`, `sudo`, `timeout`, `nice`, `xargs`, `npx`/`bunx`, `sh -c` and backticks. It now covers all seven CLIs (Codex, Muse, Grok, Antigravity, Kimi, Qwen Code, OpenCode). Help, version and housekeeping commands still pass, and heredoc text is no longer mistaken for a command. Bash and Read access to the bridge's token and port is refused.
+- **One board per real folder (low).** `/tmp` and `/private/tmp`, or a linked folder, now share leases.
+- **An empty session id fails closed.** When `$.session.id()` gives nothing, the mod uses the `session_id` from the classic hook envelope. With neither, it refuses to start a run rather than leave it ownerless.
+
+### Fixed
+
+- Stale per-session development copies of the mod (`~/.claude/dev-mods/<session>/modstage`) shadowed the installed plugin in some sessions and sent no session id. They are removed. If a session still shows other sessions' runs, start a new session.
+
+Tests: the bridge suite and `claude plugin test .` cover every item above, and `python3 scripts/isolation-gate.py` checks them live (37/37).
+
 ## 0.0.7 - 2026-10-17
 
 ### Fixed

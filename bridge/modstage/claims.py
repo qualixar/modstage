@@ -17,7 +17,7 @@ from .slm_mesh import MESH, bg
 class ClaimBoard:
     def register(self, run) -> None:
         board = board_for(run.cwd)
-        board.join(run.id, run.engine, run.label, run.label)
+        board.join(run.id, run.engine, run.label, run.label, owner=run.owner)
         bg(MESH.joined, run)
         if run.owns:
             res = board.claim(run.id, run.owns, "exclusive", reason="declared at start")

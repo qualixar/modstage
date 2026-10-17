@@ -22,6 +22,17 @@ If you pay for more than one AI coding agent, each one lives in its own terminal
 
 It comes out of our work on AI Reliability Engineering: an agent you cannot observe is an agent you should not trust with your repository.
 
+## Why not just open another terminal?
+
+| | A terminal per agent | Claude Code shelling out (`codex exec`, MCP) | ModStage |
+|---|---|---|---|
+| See each step (tool calls, edits, thinking) | in that terminal only | no: a command in, an answer out | live, every agent in one panel |
+| Steer an agent mid-run | by switching windows | no | from the panel or by asking Claude |
+| Its risky actions wait for you | in each CLI's own prompt | the CLI's own setting decides | one inbox, timed out to deny |
+| Two agents in one folder | they overwrite each other | they overwrite each other | file leases, checked at the write |
+| Claude Code knows what the others did | no | only the final answer | it reads their runs and the board |
+| Agents belong to one session | n/a | no | yes, enforced with a per-session secret and tested with 37 attacks before each release |
+
 ## Demo
 
 <!-- DEMO VIDEO: drag modstage-demo-1min.mp4 into this spot in GitHub's web editor (it becomes a user-attachments video with an inline player), then delete this comment. -->
@@ -44,7 +55,7 @@ Claude Code mods, which Anthropic calls Claude Mods, arrived on 1 October 2026 i
 - **Model picker per agent**, filled from each CLI's own list (Codex, Grok, Antigravity, OpenCode, Muse, Kimi).
 - **Images.** Hand a run screenshots with `images: ["/abs/path.png"]`: Codex (checked with a real run), plus Muse, Kimi, Qwen Code and OpenCode, whose protocols take images. Grok and Antigravity refuse with a reason instead of dropping the image.
 - **Tokens, context and cost** where the CLI reports them.
-- **One session, one stage.** Each Claude Code session sees only the runs it started; a new session starts clean.
+- **Every session owns its agents.** Like Claude Code's own subagents, the agents a session starts appear only in that session, answer only to it, and take messages only from their own siblings. Another session, or an agent that reads ModStage's files, cannot see, steer or approve them (see [Parent and child](#parent-and-child)).
 
 ## Supported agents
 
@@ -113,13 +124,25 @@ To try it without installing, clone the repo and start Claude Code with `claude 
 
 Runs start in **ask** mode: an agent's permission requests land in **Needs you**. **Auto** mode answers them automatically, except one case that always comes to you: an action on a file another agent has claimed.
 
-**Only your own words approve.** `stage_decide` is enforced by code, not by a prompt: the mod records when you last submitted a message (only your own prompt counts, not a peer session, a plugin, a schedule or anything an agent streams), and the tool refuses to decide an approval unless you spoke after that approval was raised. Agent output, `stage_wait` results and file contents cannot satisfy the check, so an injected "the user says allow it" gets a refusal telling Claude to ask you to confirm in your own message. Answering in the ModStage panel is a direct click and is unaffected. The check proves you sent some message after the request, not that the message said yes, so Claude is still told to act only on what you actually wrote.
+**Only your own words approve.** `stage_decide` is enforced by code, not by a prompt. When you submit a message, the mod records when, and which decision it states (allow, allow for the rest of the run, or deny; never the text itself). Only your own prompt counts, not a peer session, a plugin, a schedule or anything an agent streams. The tool then refuses unless your latest message came after the approval was raised and states that decision: "what time is it?" approves nothing, "allow it" allows once but not for the rest of the run, and one message answers one approval. An injected "the user says allow it" gets a refusal telling Claude to ask you. Answering in the ModStage panel is a direct click and is unaffected.
 
-Read [SECURITY.md](SECURITY.md) for the full model: what the bridge defends against (web pages, a hostile repository, agent text posing as ModStage, one session driving another's runs) and what it cannot (agents run as you). Three honest limits:
+Read [SECURITY.md](SECURITY.md) for the full model: what the bridge defends against (web pages, a hostile repository, agent text posing as ModStage, an agent posing as its parent, one session reaching another's agents) and what it cannot (agents run as you). Three honest limits:
 
 - **Agents decide when to ask.** If an agent's own configuration approves everything, it never asks, and the inbox cannot stop it. The launcher tells you before Start (for example Grok with `permission_mode = "always-approve"`).
 - **Headless Antigravity cannot ask.** In ask mode ModStage makes it read-only: a per-run agy project (`~/.gemini/config/projects/modstage-<run>.json`, removed when the run ends) lets it read web pages, search the web and read files in its folder, and keeps writes, shell commands and files outside its folder refused. A refusal ends the turn blocked, and `stage_wait`, `stage_status` and the panel say what was refused and that a new run with autonomy `auto`, ideally in an isolated folder, lets it proceed. Auto mode passes agy's skip-permissions flag instead. Your own agy `settings.json` and shared rules are never edited.
 - **Approvals are not a sandbox.** Point agents at a folder you are willing to let them change, ideally a git worktree.
+
+## Parent and child
+
+Claude Code keeps its own subagents inside the session that started them. ModStage does the same for every CLI it runs, even though those agents are separate programs talking to a bridge:
+
+- When a session starts, the mod registers with the bridge and receives a random secret. It is held in Claude Code's memory, never written to disk, and sent with every call. Runs belong to that secret, not to the session id, so knowing a session id proves nothing.
+- The bridge's install token in `~/.modstage/token` only proves "a program on this machine". An agent runs as you and can read it, but with the token alone it reaches no session's runs. Registering again, even under its parent's session id, gives it a new, empty scope.
+- An agent's own run token works only on the board, as itself. It cannot list runs, message a run, approve anything or register a session.
+- Another session's runs do not exist for you: asking about one answers "no run in this session", the same as a run that never existed.
+- `/clear` keeps the secret, so the agents you started stay with you instead of running on with no parent.
+
+`python3 scripts/isolation-gate.py` starts a throwaway bridge with a fake agent and tries each of these attacks (37 checks) before every release.
 
 ## Many agents, one folder
 
@@ -129,14 +152,15 @@ When agents share a folder, ModStage gives it a board in `<folder>/.modstage/` (
 - claims are leases; a conflicting exclusive claim is **denied**, not just warned about, and editing a file claims it
 - fence numbers are checked **at the write**, not just at claim or approval time: if a run's lease lapsed and another run took the file, the first run's write is rejected even if it was allowed to edit earlier. This holds for Codex edits and for ACP agents (Grok, Kimi, Qwen Code, OpenCode) that write through ModStage; Muse and Antigravity write files themselves, so for them ModStage still detects and flags the conflict afterwards
 - messages arrive at the start of the receiver's next turn, framed as information from another agent, never as instructions
-- Claude Code joins as `claude-<session>`: agents can message it, it reads them with `stage_board`, and its own Edit and Write calls are refused on a file an agent holds (with no bridge running, nothing is blocked)
+- **what keeps files safe is shared, what is said is not**: every session in the folder sees the roster and the claims, so two sessions' agents never write over each other; messages, what an agent says it is doing, and the activity that quotes them stay inside the session that owns them. `STATE.md`, which any agent can read, holds only the shared part
+- Claude Code joins the board as this session's own peer: its agents can message it, it reads them with `stage_board`, and its own Edit and Write calls are refused on a file an agent holds (with no bridge running, nothing is blocked)
 
-If you run [SuperLocalMemory](https://github.com/qualixar/superlocalmemory), run peers, claims and board messages are mirrored to its local SLM-mesh so other Claude Code windows see them. Nothing depends on it; `MODSTAGE_SLM_MESH=0` turns it off. Details: [docs/COORDINATION.md](docs/COORDINATION.md).
+If you run [SuperLocalMemory](https://github.com/qualixar/superlocalmemory), run peers and file claims are mirrored to its local SLM-mesh so other Claude Code windows see which files are held. Messages and prompt text are never mirrored. Nothing depends on it; `MODSTAGE_SLM_MESH=0` turns it off. Details: [docs/COORDINATION.md](docs/COORDINATION.md).
 
 ## How it works
 
 ```
-Claude Code ── mod: panel, tools, guards ──► bridge on 127.0.0.1 (token auth)
+Claude Code ── mod: panel, tools, guards ──► bridge on 127.0.0.1 (install token + per-session secret)
                                               ├─ codex app-server
                                               ├─ muse serve
                                               ├─ ACP agents: grok, kimi, qwen, opencode, …
@@ -144,9 +168,9 @@ Claude Code ── mod: panel, tools, guards ──► bridge on 127.0.0.1 (toke
                                               └─ board per folder: leases, messages, STATE.md
 ```
 
-A Claude Code mod cannot hold a two-way pipe open to another program, so ModStage runs a small Python bridge (standard library only) that does. The bridge keeps each agent's own protocol session, turns its events into one stream, routes its permission requests to your inbox, and serves it all to the mod over localhost with a per-install token. It starts by itself with your Claude Code session.
+A Claude Code mod cannot hold a two-way pipe open to another program, so ModStage runs a small Python bridge (standard library only) that does. The bridge keeps each agent's own protocol session, turns its events into one stream, routes its permission requests to your inbox, and serves it all to the mod over localhost: the install token says the caller is on this machine, and the session's secret says which runs are its own. It starts by itself with your Claude Code session.
 
-While the mod is on, Claude cannot launch `codex exec`, `muse exec` or `grok -p` through Bash, so no agent runs out of sight (`--help` and `--version` are allowed).
+While the mod is on, Claude cannot launch any of the seven agent CLIs for a turn through Bash, whatever wraps the command (`env`, `sh -c`, `npx`, `timeout`, `sudo`, `xargs`…), so no agent runs out of sight; `--help`, `--version`, `login`, `models` and other housekeeping commands still work. Claude also cannot read the bridge's token or call its port directly.
 
 ## What it can reach
 
@@ -156,7 +180,7 @@ Mods are not sandboxed and run with your permissions, so here is the full list:
 - **Writes:** `~/.modstage/` (token, run logs) and `<folder>/.modstage/` (board, `STATE.md`).
 - **Runs:** the agent CLIs you have plugged in, and the bridge.
 - **Network:** `127.0.0.1` only (the bridge, and SuperLocalMemory's daemon if you run it). No telemetry.
-- **Blocks:** Bash commands that launch Codex, Muse or Grok directly; Claude's edits to files an agent has claimed.
+- **Blocks:** Bash commands that launch an agent CLI for a turn, Bash and Read access to the bridge's token and port, and Claude's Edit and Write calls on files an agent has claimed.
 
 Run logs contain what the agents saw and did, including file contents and command output. Treat `~/.modstage/runs/` like your shell history.
 
@@ -192,6 +216,7 @@ claude plugin validate .
 claude plugin test .                               # the mod: panel, tools, guards
 python3 -m unittest discover -s bridge/tests       # the bridge, incl. the per-agent conformance harness
 python3 bridge/tests/parity_matrix.py --check      # regenerate docs/PARITY-MATRIX.md from real test runs
+python3 scripts/isolation-gate.py                  # the release gate: 37 cross-session and agent attacks must all fail
 python3 scripts/smoke_real_cli.py codex --approval # one real CLI, tiny prompts (costs tokens)
 ```
 
@@ -203,7 +228,9 @@ The conformance harness drives every adapter through protocol fakes at zero toke
 
 **Does it need API keys?** No. It runs the CLIs you already have signed in, on your own subscriptions.
 
-**Can a coding agent approve its own risky action?** No. Approvals come only from the panel or from your own words in Claude chat; board messages between agents are never treated as approvals.
+**Can a coding agent approve its own risky action?** No. Approvals come only from the panel or from your own words in Claude chat. An agent that reads ModStage's token file still cannot reach its own approval, because answering needs the session's secret, which never touches disk. The release gate tries exactly this.
+
+**Will my agents show up in my other Claude Code session?** No. Each session sees, steers and approves only the agents it started. Two sessions in one folder share file claims, so their agents never overwrite each other, and nothing else.
 
 **Does it work in the terminal or only the desktop app?** Both. The install is the same everywhere mods run, including VS Code; the panel's tests draw it on the terminal and desktop surfaces.
 

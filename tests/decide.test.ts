@@ -6,7 +6,8 @@ import type { Bridge } from './fake-bridge.ts'
 // tests check what the tool sends and says, with no bridge or agent running.
 
 const decide = async ($: any, input: any) => {
-  await userSays($, 'ok') // the user has spoken since the approval
+  // the user has spoken since the approval, stating the decision Claude passes on
+  await userSays($, input.choice === 'deny' ? 'deny it' : input.choice === 'allow_session' ? 'allow it for the rest of this run' : 'ok')
   return $.tool.call({ tool: 'mcp__modstage__stage_decide', ...input } as any)
 }
 const out = (res: any) => String(res?.result ?? res?.text ?? res?.deny ?? '')
@@ -65,7 +66,7 @@ test("another Claude session's run cannot be answered from here", async ($, on) 
   fakeBridge(on, b)
   const res = await decide($, { run_id: 'r1', choice: 'allow' })
   expect(b.decided).toEqual([])
-  expect(out(res)).toContain('another Claude Code session')
+  expect(out(res)).toContain('no run r1 in this session')  // the bridge does not even confirm it exists
 })
 
 test('stage_status lists waiting approvals with ids, the exact action and who may decide', async ($, on) => {

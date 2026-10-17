@@ -78,19 +78,18 @@ class ClaimLimitsTest(unittest.TestCase):
 
 
 class MirrorLimitsTest(unittest.TestCase):
-    def test_messages_and_locks_stay_inside_modstage(self):
+    def test_no_message_or_prompt_text_leaves_and_locks_stay_inside(self):
         mesh = slm_mesh.Mesh()
         mesh.state = "on"
-        run = make_run("codex")
-        mesh._peers[run.id] = "peer-1"
+        run = make_run("codex", prompt="rotate the deploy key in ./k")
         sent = []
-        with mock.patch.object(mesh, "_post", lambda path, body: sent.append((path, body))):
-            mesh.message(run, "some-claude-window-peer", "hi")
+        with mock.patch.object(mesh, "_post", lambda path, body: sent.append((path, body)) or {"peer_id": "peer-1"}):
+            mesh.joined(run)
             mesh.lock(run, "/etc/passwd", True)
             mesh.lock(run, "../outside.py", True)
-            mesh.message(run, "all", "hi all")
-        self.assertEqual([p for p, _ in sent], ["/send"])
-        self.assertEqual(sent[0][1]["to"], "broadcast")
+        self.assertFalse(hasattr(mesh, "message"))  # board messages are never mirrored
+        self.assertEqual([p for p, _ in sent], ["/register"])
+        self.assertNotIn("deploy key", json.dumps(sent))
         RUNS.pop(run.id, None)
 
 
@@ -151,23 +150,52 @@ class HttpTest(unittest.TestCase):
             urllib.request.urlopen(r, timeout=10)
         self.assertEqual(caught.exception.code, 401)
 
+    def scope(self, session="sess-A"):
+        code, body = self.req("POST", "/sessions", json.dumps({"session": session}).encode(),
+                              {"X-ModStage-Token": "t" * 48, "Content-Type": "application/json"})
+        self.assertEqual(code, 200)
+        return {"X-ModStage-Token": "t" * 48, "X-ModStage-Session": body["key"], "Content-Type": "application/json"}
+
     def test_another_session_cannot_read_or_drive_a_run(self):
+        a, b = self.scope("sess-A"), self.scope("sess-B")
         run = make_run("codex")
-        run.owner = "sess-A"
-        auth = {"X-ModStage-Token": "t" * 48, "Content-Type": "application/json"}
+        run.owner = server.owner_of(a["X-ModStage-Session"])
         try:
-            self.assertEqual(self.req("GET", f"/runs/{run.id}?session=sess-B", headers=auth)[0], 403)
-            self.assertEqual(self.req("GET", f"/runs/{run.id}?session=sess-A", headers=auth)[0], 200)
-            body = json.dumps({"session": "sess-B"}).encode()
-            self.assertEqual(self.req("POST", f"/runs/{run.id}/close", body, auth)[0], 403)
+            self.assertEqual(self.req("GET", f"/runs/{run.id}", headers=b)[0], 404)  # does not even exist for B
+            self.assertEqual(self.req("GET", f"/runs/{run.id}", headers=a)[0], 200)
+            self.assertEqual(self.req("POST", f"/runs/{run.id}/close", b"{}", b)[0], 404)
             self.assertIn(run.id, RUNS)
+            self.assertEqual([r["id"] for r in self.req("GET", "/runs", headers=b)[1]["runs"]], [])
         finally:
             RUNS.pop(run.id, None)
 
-    def test_board_cwd_must_be_an_existing_absolute_folder(self):
-        auth = {"X-ModStage-Token": "t" * 48}
-        self.assertEqual(self.req("GET", "/board?cwd=relative/dir", headers=auth)[0], 400)
-        self.assertEqual(self.req("GET", "/board?cwd=/no/such/folder/xyz", headers=auth)[0], 400)
+    def test_the_install_token_alone_reaches_no_session(self):
+        token_only = {"X-ModStage-Token": "t" * 48, "Content-Type": "application/json"}
+        run = make_run("codex")
+        run.owner = server.owner_of(self.scope()["X-ModStage-Session"])
+        try:
+            for method, path in (("GET", "/runs"), ("GET", "/inbox"), ("GET", f"/runs/{run.id}"),
+                                 ("POST", f"/runs/{run.id}/decide"), ("POST", "/runs"), ("POST", "/claude/inbox")):
+                code, body = self.req(method, path, b"{}" if method == "POST" else b"", token_only)
+                self.assertEqual(code, 401, (method, path, body))
+            stolen = dict(token_only, **{"X-ModStage-Session": "guessed-or-old"})
+            self.assertEqual(self.req("GET", "/runs", headers=stolen)[0], 401)
+            # nor can it act as a run on the board
+            code, _ = self.req("POST", "/board/claim", json.dumps({"run_id": run.id, "paths": ["x"]}).encode(), token_only)
+            self.assertEqual(code, 401)
+        finally:
+            RUNS.pop(run.id, None)
+
+    def test_health_and_listings_say_nothing_about_other_sessions(self):
+        run = make_run("codex")
+        run.owner = server.owner_of(self.scope("sess-A")["X-ModStage-Session"])
+        try:
+            self.assertEqual(self.req("GET", "/health")[1], {"ok": True})
+            listing = self.req("GET", "/runs", headers=self.scope("sess-B"))[1]
+            self.assertEqual(listing, {"runs": []})
+            self.assertEqual(self.req("GET", "/board", headers=self.scope("sess-B"))[0], 404)  # no board dump route
+        finally:
+            RUNS.pop(run.id, None)
 
 
 if __name__ == "__main__":

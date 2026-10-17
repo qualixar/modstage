@@ -5,6 +5,8 @@ Identity is the caller's run, resolved from its per-run token by the server, nev
 
 from __future__ import annotations
 
+import os
+
 from typing import Callable
 
 from .board import KINDS, MODES, STATES, board_for
@@ -50,9 +52,9 @@ def perform(op: str, run: Run, body: dict, wake: Callable[[Run], None]) -> dict:
         if run.coordination != "mcp" and body.get("_via") == "mcp":
             run.coordination = "mcp"
             run.add("status", "coordination tools connected")
-        return board.join(run.id, run.engine, run.label, body.get("doing", ""), via=body.get("_via", "tool"))
+        return board.join(run.id, run.engine, run.label, body.get("doing", ""), via=body.get("_via", "tool"), owner=run.owner)
     if op == "board_read":
-        return board.read()
+        return board.read(run.owner)
     if op == "board_post":
         return board.post(run.id, str(body.get("state", "working")), str(body.get("doing", "")))
     if op == "claim":
@@ -87,32 +89,49 @@ def perform(op: str, run: Run, body: dict, wake: Callable[[Run], None]) -> dict:
     if op == "check_paths":
         return {"held": board.holders(run.id, [str(p) for p in body.get("paths") or []])}
     if op == "send":
-        to = str(body.get("to") or "all")
-        res = board.send(run.id, to, str(body.get("kind") or "info"), str(body.get("body", "")), str(body.get("thread", "")))
+        to = _recipient(run, str(body.get("to") or "all"))
+        res = board.send(run.id, to, str(body.get("kind") or "info"), str(body.get("body", "")), str(body.get("thread", "")),
+                         owner=run.owner)
         run.add("sent", f"→ {to}: {str(body.get('body', ''))[:160]}")
-        bg(MESH.message, run, to, str(body.get("body", "")))
         _notify(run, to, str(body.get("body", "")), bool(body.get("wake")), wake)
         return res
     if op == "inbox":
-        return {"messages": board.inbox(run.id)}
+        return {"messages": board.inbox(run.id, owner=run.owner)}
     if op == "handoff":
-        to = str(body.get("to") or "all")
+        to = _recipient(run, str(body.get("to") or "all"))
         files = [str(f) for f in body.get("files") or []]
         nxt = [str(n) for n in body.get("next") or []]
         text = str(body.get("summary", "")) + (f"\nFiles: {', '.join(files)}" if files else "") + \
             ("\nNext:\n" + "\n".join(f"- {n}" for n in nxt) if nxt else "")
-        res = board.send(run.id, to, "handoff", text)
+        res = board.send(run.id, to, "handoff", text, owner=run.owner)
         released = sum(board.release(run.id, f) for f in files)
         run.add("sent", f"handoff → {to}: {str(body.get('summary', ''))[:140]}")
-        bg(MESH.message, run, to, text)
         _notify(run, to, text, True, wake)
         return {**res, "released": released}
     raise ValueError(f"unknown board operation {op}")
 
 
+def _recipient(sender, to: str) -> str:
+    """'all', or a run or Claude peer of the sender's own session in this folder. Another session's agents
+    are not reachable: a session's children take messages only from their own family."""
+    if to == "all":
+        return to
+    from .claude_peer import peer_ids
+    here = os.path.realpath(sender.cwd)
+    family = {r.id for r in RUNS.values() if r.owner == sender.owner and os.path.realpath(r.cwd) == here} \
+        | peer_ids(sender.owner, sender.cwd)
+    if to not in family or to == sender.id:
+        raise ValueError(f"no agent {to} of this Claude Code session works in this folder; "
+                         "messages reach only this session's own agents")
+    return to
+
+
 def _notify(sender: Run, to: str, body: str, wake_idle: bool, wake: Callable[[Run], None]) -> None:
-    """Show the message on the receivers' feeds; optionally wake idle receivers."""
-    targets = [r for r in RUNS.values() if r.cwd == sender.cwd and r is not sender and (to == "all" or r.id == to)]
+    """Show the message on the receivers' feeds; optionally wake idle receivers. Receivers are the sender's
+    own session's runs in this folder; another session's agents are never shown it or woken by it."""
+    here = os.path.realpath(sender.cwd)
+    targets = [r for r in RUNS.values() if os.path.realpath(r.cwd) == here and r is not sender and r.owner == sender.owner
+               and (to == "all" or r.id == to)]
     for target in targets:
         target.add("inbox", f"from {sender.engine} {sender.id}: {body[:200]}")
         if wake_idle and target.status == "idle" and target.adapter is not None:

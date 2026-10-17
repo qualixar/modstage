@@ -246,7 +246,7 @@ class Run:
                 "quiet_s": quiet, "stuck": quiet >= STUCK_AFTER_S,
                 "usage": dict(self.usage), "events": self.seq, "error": self.error,
                 "session_id": self.session_id, "pending": list(self.pending.values()),
-                "owner": self.owner, "blocked": self.blocked, "queued": self.queued,
+                "blocked": self.blocked, "queued": self.queued,
                 "waiting_on_user": bool(self.pending),
                 "touched": self.touched[-50:], "owns": self.owns, "approval_note": self.approval_note, "coordination": self.coordination,
             }
