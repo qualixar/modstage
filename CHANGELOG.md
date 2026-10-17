@@ -2,6 +2,16 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.4 - 2026-10-17
+
+### Security
+
+- **`stage_decide` now needs the user to have spoken, enforced by code.** The mod records when you last submitted a message (only your own prompt counts: not a peer session, a plugin, a schedule or a task notification) and refuses to answer an approval unless you sent one after that approval was raised. Agent output, `stage_wait` results and file contents cannot satisfy the check; the refusal tells Claude to ask you to confirm in your own message. The ModStage panel is unaffected. The check proves you sent a message after the request, not what it said.
+
+### Fixed
+
+- **`PYTHONPATH` and `PYTHONSAFEPATH` no longer leak into the agent process environment.**
+
 ## 0.0.3 - 2026-10-17
 
 ### Fixed
