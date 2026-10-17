@@ -172,3 +172,23 @@ class HttpTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AgentEnvTest(unittest.TestCase):
+    def test_agent_env_carries_only_modstage_variables(self):
+        env = coordination.agent_env(make_run("codex"))
+        self.assertTrue(env and all(k.startswith("MODSTAGE_") for k in env), env)
+
+    def test_agent_python_script_can_import_a_sibling_module(self):
+        repo = tempfile.mkdtemp()
+        Path(repo, "cfg.py").write_text("VALUE = 'sibling-ok'\n")
+        Path(repo, "build.py").write_text("from cfg import VALUE\nprint(VALUE)\n")
+        base = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONSAFEPATH")}
+        proc = subprocess.run([sys.executable, "build.py"], cwd=repo, capture_output=True, text=True,
+                              timeout=20, env={**base, **coordination.agent_env(make_run("codex"))})
+        self.assertEqual(proc.stdout.strip(), "sibling-ok", proc.stderr[-400:])
+
+    def test_mcp_server_env_keeps_the_shadowing_protection(self):
+        env = coordination.mcp_server(make_run("codex"))["env"]
+        self.assertEqual(env["PYTHONSAFEPATH"], "1")
+        self.assertEqual(env["PYTHONPATH"], coordination.BRIDGE_DIR)
