@@ -68,6 +68,7 @@ def start_run(body: dict) -> Run:
     owns = body.get("owns") or []
     if not isinstance(owns, list) or not all(isinstance(o, str) for o in owns):
         raise ValueError("owns must be a list of file paths or glob patterns")
+    registry.check_model(engine, body.get("model"))
     run = Run(spec, prompt, cwd, body.get("model"), body.get("label"), body.get("autonomy", "ask"), owns,
               owner=str(body.get("session") or ""))
     run.start_images = images_from(body)
@@ -363,6 +364,9 @@ class Handler(BaseHTTPRequestHandler):
                     held = claude_peer.edit_conflicts(str(body.get("session") or ""), str(body.get("path") or ""))
                     return self._reply(200, {"held": held})
                 return self._reply(200, claude_peer.perform(parts[1], body, wake))
+            if parts == ["agents", "refresh"]:
+                registry.refresh_models(force=True)
+                return self._reply(200, {"ok": "asking each agent CLI for its models again"})
             if parts == ["runs"]:
                 images_from(body)  # refuse a bad path before starting anything
                 return self._reply(200, start_run(body).summary())

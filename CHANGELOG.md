@@ -2,6 +2,20 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.6 - 2026-10-17
+
+### Fixed
+
+- **Agent model lists stay current.** The bridge outlives Claude Code sessions, so a list fetched when it started went stale when an agent's plan or catalog changed (a Muse subscription switch showed old models and the wrong default). Now every Claude Code session start asks every installed agent CLI (Codex, Muse, Grok, Antigravity, Kimi, Qwen Code, OpenCode) for its models again, and a list older than 10 minutes is fetched again in the background whenever it is read. Readers keep the old list until the new one arrives.
+- **The agent's own config names the default.** Where the CLI's config sets a model (Codex, Muse, Antigravity, Kimi, Qwen Code, OpenCode), that is the default shown, ahead of the catalog's own pick. Antigravity's display label is matched to its model id.
+
+### Added
+
+- **`stage_start` checks the model.** A model id the agent does not list is refused with the ids it does offer; on a miss the bridge asks the CLI once more first, so a model added since the last fetch still starts. Agents that list no models (Qwen Code) take any id as before. Long lists are checked whole; only the listing shown is capped at 16.
+- **Muse contributor ids fold into their model.** When Muse lists a model twice (plain and `-contributor`, the same model with your content usable for product improvement), ModStage shows it once and names the contributor id beside it; both ids start.
+
+Tests: `bridge/tests/test_model_refresh.py`, `tests/models-refresh.test.ts`.
+
 ## 0.0.5 - 2026-10-17
 
 ### Added

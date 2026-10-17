@@ -475,6 +475,8 @@ export const register: Register = on => {
     } catch (err) {
       await update($, bridgeError, () => String((err as Error).message ?? err))
     }
+    // the bridge outlives sessions: ask every agent CLI for its models again (plans and catalogs change)
+    await call($, 'POST', '/agents/refresh').catch(() => undefined)
     const plugged = await refreshAgents($)
     const ids = plugged.length ? plugged.map(a => a.id) : FALLBACK_ENGINES
     const runId = { type: 'string', description: 'The run id stage_start returned' }
@@ -706,7 +708,7 @@ export const register: Register = on => {
     return text(list.map(a => `${a.id} · ${a.name} · ${a.installed ? a.version || 'installed' : 'NOT installed'} · ` +
       `${a.steer === 'native' ? 'steerable' : 'queued messages'}${a.note ? ` · ${a.note}` : ''}` +
       (a.takes_model ? `\n    model: default ${a.default_model || '(its own config)'}` +
-        (a.models?.length ? `; also ${a.models.map(m => m.id).join(', ')}` : '; any id the CLI accepts') : '\n    model: fixed by its own config')
+        (a.models?.length ? `; also ${a.models.map(m => m.variant ? `${m.id} (or ${m.variant}: same model, your content may be used for product improvement)` : m.id).join(', ')}` : '; any id the CLI accepts') : '\n    model: fixed by its own config')
     ).join('\n') + '\nClaude subagents: start them with the Agent tool as usual (model haiku, sonnet, opus or a full id); they appear as ModStage tabs.')
   }).catch(stageError)
 

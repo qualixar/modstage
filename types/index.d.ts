@@ -65,7 +65,7 @@ export type StageAgent = {
   command: string
   note: string
   /** models the CLI listed (capped); empty when it has no list command */
-  models?: Array<{ id: string; label: string }>
+  models?: Array<{ id: string; label: string; variant?: string }>
   /** the model it uses when none is picked, where known */
   default_model?: string
   /** whether a model can be passed at start */

@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 HOME = Path(os.environ.get("MODSTAGE_HOME", Path.home() / ".modstage"))
@@ -103,9 +104,10 @@ AGY_RESTART = ("To let it proceed, start a new run with autonomy \"auto\", ideal
                "(auto allows everything)")
 
 
-# ---- models: asked of each CLI itself, once, in the background ----
+# ---- models: asked of each CLI itself, in the background, and asked again when old ----
 
 MAX_MODELS = 16
+MODELS_TTL = 600  # seconds a list is trusted; plans and catalogs change while the bridge stays up
 # agent id -> (command, parser). Agents with no list command offer their default plus any id typed.
 MODEL_SOURCES: dict[str, tuple[list[str], str]] = {
     "codex": (["codex", "debug", "models"], "codex_json"),
@@ -115,6 +117,8 @@ MODEL_SOURCES: dict[str, tuple[list[str], str]] = {
 }
 _models: dict[str, dict] = {}
 _models_lock = threading.Lock()
+_inflight: dict[str, threading.Thread] = {}
+CONTRIBUTOR = "-contributor"
 
 
 def parse_models(kind: str, text: str) -> tuple[list[dict], str]:
@@ -144,30 +148,63 @@ def parse_models(kind: str, text: str) -> tuple[list[dict], str]:
             s = line.strip()
             if s and " " not in s:
                 models.append({"id": s, "label": s})
-    return models[:MAX_MODELS], default
+    return models, default
 
 
-def _configured_default(agent_id: str) -> str:
-    """The model the CLI uses when none is given, where its own config says so."""
+def _read_json(path: Path) -> dict:
+    data = json.loads(path.read_text())
+    return data if isinstance(data, dict) else {}
+
+
+def _configured_default(agent_id: str, models: list[dict] | None = None) -> str:
+    """The model the CLI uses when none is given, where its own config says so. Antigravity's settings
+    name a display label ("Gemini 4 Argon (Medium)"); it is matched to the listed id."""
+    home = Path.home()
     try:
         if agent_id == "codex":
-            for line in (Path.home() / ".codex" / "config.toml").read_text().splitlines():
+            for line in (home / ".codex" / "config.toml").read_text().splitlines():
                 if line.strip().startswith("model ") or line.strip().startswith("model="):
                     return line.split("=", 1)[1].strip().strip('"')
         if agent_id == "muse":
-            cfg = Path.home() / ".config" / "muse" / "settings.json"
-            return json.loads(cfg.read_text()).get("model", "")
+            return str(_read_json(home / ".config" / "muse" / "settings.json").get("model") or "")
+        if agent_id == "antigravity":
+            label = str(_read_json(home / ".gemini" / "antigravity-cli" / "settings.json").get("model") or "")
+            return next((m["id"] for m in models or [] if label and m.get("label") == label), "")
+        if agent_id == "qwen":
+            model = _read_json(home / ".qwen" / "settings.json").get("model")
+            return str((model or {}).get("name") or "") if isinstance(model, dict) else str(model or "")
+        if agent_id == "opencode":
+            for name in ("opencode.json", "config.json"):
+                cfg = home / ".config" / "opencode" / name
+                if cfg.exists():
+                    return str(_read_json(cfg).get("model") or "")
     except (OSError, ValueError, IndexError):
         pass
     return ""
 
 
 def muse_catalog(result: dict) -> tuple[list[dict], str]:
-    """(models, default) from Muse's MSP `model/list` result (muse schema: ModelCatalogEntry rows)."""
-    rows = result.get("models") or []
-    models = [{"id": m["modelId"], "label": m.get("displayLabel") or m["modelId"]} for m in rows if m.get("modelId")]
+    """(models, default) from Muse's MSP `model/list` result (muse schema: ModelCatalogEntry rows).
+    Muse lists each model twice: plain and "-contributor" (the same model; your content may be used
+    for product improvement). The contributor id folds into its model as `variant`."""
+    rows = [m for m in (result.get("models") or []) if m.get("modelId")]
+    ids = {m["modelId"] for m in rows}
+    models = []
+    for m in rows:
+        mid = m["modelId"]
+        if mid.endswith(CONTRIBUTOR) and mid[: -len(CONTRIBUTOR)] in ids:
+            continue
+        entry = {"id": mid, "label": m.get("displayLabel") or mid}
+        if mid + CONTRIBUTOR in ids:
+            entry["variant"] = mid + CONTRIBUTOR
+        models.append(entry)
     default = next((m["modelId"] for m in rows if m.get("isDefault")), "")
-    return models[:MAX_MODELS], default
+    return models, default
+
+
+def known_ids(models: list[dict]) -> set[str]:
+    """Every id a listed model answers to, variants included."""
+    return {m["id"] for m in models} | {m["variant"] for m in models if m.get("variant")}
 
 
 def _muse_models() -> tuple[list[dict], str]:
@@ -193,6 +230,13 @@ def kimi_catalog(text: str) -> tuple[list[dict], str]:
     return models[:MAX_MODELS], str(data.get("default_model") or "")
 
 
+def _store(agent_id: str, models: list[dict], default: str) -> None:
+    """Cache a fresh list. The CLI's own config names the model it really uses, so it wins over a catalog."""
+    with _models_lock:
+        _models[agent_id] = {"models": models, "default_model": _configured_default(agent_id, models) or default,
+                             "fetched_at": time.time()}
+
+
 def _fetch_models(agent_id: str) -> None:
     models, default = [], ""
     source = MODEL_SOURCES.get(agent_id)
@@ -212,15 +256,58 @@ def _fetch_models(agent_id: str) -> None:
             models, default = parse_models(source[1], out.stdout)
         except (subprocess.TimeoutExpired, OSError, ValueError):
             pass
+    _store(agent_id, models, default)
+
+
+def _stale(agent_id: str) -> bool:
+    cached = _models.get(agent_id)
+    return not cached or time.time() - cached.get("fetched_at", 0) > MODELS_TTL
+
+
+def _background_fetch(agent_id: str) -> None:
     with _models_lock:
-        _models[agent_id] = {"models": models, "default_model": default or _configured_default(agent_id)}
+        running = _inflight.get(agent_id)
+        if running and running.is_alive():
+            return
+        thread = threading.Thread(target=_fetch_models, args=(agent_id,), daemon=True)
+        _inflight[agent_id] = thread
+    thread.start()
+
+
+def refresh_models(force: bool = False) -> None:
+    """Ask installed CLIs for their models in the background: all of them when forced (each Claude Code
+    session start), otherwise only lists older than MODELS_TTL. Readers keep the old list meanwhile."""
+    for spec in load().values():
+        if shutil.which(spec["command"][0]) and (force or _stale(spec["id"])):
+            _background_fetch(spec["id"])
 
 
 def prefetch_models() -> None:
-    """Ask every installed CLI for its models in parallel; the setup check reads the cache."""
-    for spec in load().values():
-        if shutil.which(spec["command"][0]):
-            threading.Thread(target=_fetch_models, args=(spec["id"],), daemon=True).start()
+    """At bridge start: fetch every list."""
+    refresh_models(force=True)
+
+
+def check_model(agent_id: str, model: str | None) -> None:
+    """Refuse a model the agent's CLI does not list. A miss asks the CLI again first (the catalog may
+    have changed since the cache). Skipped when the CLI listed nothing (it takes any id)."""
+    if not model:
+        return
+    for attempt in (0, 1):
+        cached = _models.get(agent_id) or {}
+        models = cached.get("models") or []
+        if not models or model in known_ids(models):
+            return
+        if attempt == 0:
+            _fetch_models(agent_id)
+    offered = ", ".join(sorted(known_ids(models)))
+    raise ValueError(f"{agent_id} does not offer model '{model}' now. It offers: {offered}")
+
+
+def _listing(agent_id: str) -> dict:
+    cached = _models.get(agent_id)
+    if not cached:
+        return {"models": [], "default_model": _configured_default(agent_id)}
+    return {"models": cached["models"][:MAX_MODELS], "default_model": cached["default_model"]}
 
 
 def doctor() -> dict:
@@ -241,5 +328,6 @@ def doctor() -> dict:
                        "command": " ".join(spec["command"]), "note": _approval_note(spec),
                        "takes_model": bool(spec.get("model_args")) or spec["protocol"] == "codex-app-server"
                        or bool(spec.get("model_via")),
-                       **_models.get(spec["id"], {"models": [], "default_model": _configured_default(spec["id"])})})
+                       **_listing(spec["id"])})
+    refresh_models()  # lists older than MODELS_TTL are fetched again in the background
     return {"agents": report, "config": str(HOME / "agents.json")}
