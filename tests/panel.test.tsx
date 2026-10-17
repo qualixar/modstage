@@ -112,7 +112,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 
 
 // ---- A: the Needs-you card is reachable wherever the panel is scrolled ----
-import { ask, fakeBridge, runWith } from './fake-bridge.ts'
+import { ask, fakeBridge, runWith, userSays } from './fake-bridge.ts'
 import type { Bridge } from './fake-bridge.ts'
 import { revealInbox } from '../hooks/register.tsx'
 
@@ -133,6 +133,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
       return { value: { isPlaced: true } }
     })
     // deciding one approval refreshes the panel; the other is new to it: revealInbox runs and it is announced
+    await userSays($, 'deny the curl') // stage_decide needs the user to have spoken
     await $.tool.call({ tool: 'mcp__modstage__stage_decide', run_id: 'r1', approval_id: 'a1', choice: 'deny' } as any)
     expect((b.toasts ?? []).some(t => t.includes('codex needs you') && t.includes('pip install x'))).toBe(true)
 

@@ -7,6 +7,7 @@ export type Bridge = { runs: Record<string, any>; decided: any[]; session: strin
 
 export function fakeBridge(on: any, b: Bridge) {
   mock.env(on, { HOME: '/home/test' })
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text })) // stands for the engine beneath the mod
   on('session.id', () => ({ value: b.session }))
   on('session.cwd', () => ({ value: '/home/test/demo' }))
   on('fs.read', () => ({ value: 'tok' }))
@@ -56,3 +57,6 @@ export const runWith = (pending: any[], owner = 'sess-A') => ({
   id: 'r1', engine: 'codex', status: 'running', activity: 'waiting', owner, pending,
   usage: { input: 0, cached: 0, output: 0, reasoning: 0, context_used: 0, context_window: null, cost_usd: null },
 })
+
+/** A prompt as the engine raises it: `kind` is its origin (composer = the user typing; the kit passes it through). */
+export const userSays = ($: any, text: string, kind = 'composer') => $.prompt.submit({ text, origin: { kind } } as any)
