@@ -14,6 +14,11 @@ Leases (ideas from yesitsfebreeze/mesh and coord, both MIT; our own implementati
 - check_write() is the fence at the write itself: it runs on every write an adapter can intercept and
   rejects a writer whose lease lapsed and was taken over, even if that run was allowed to edit earlier.
 Messages are framed for the receiver as information from another agent, not user instructions.
+
+Sessions: every row carries the owner of the Claude Code session it belongs to. What keeps files safe is
+shared by everyone in the folder: the roster (engine, run id, state) and the claims and fences. What is a
+session's own stays with that session: message bodies, threads, what an agent says it is doing, and the
+log lines that quote them. STATE.md, which any agent in the folder can read, holds only the shared part.
 """
 
 from __future__ import annotations
@@ -45,6 +50,8 @@ CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread TEXT, sender TE
 CREATE TABLE IF NOT EXISTS reads (run_id TEXT, message_id TEXT, PRIMARY KEY (run_id, message_id));
 CREATE TABLE IF NOT EXISTS log (ts REAL, line TEXT);
 """
+# columns added in 0.0.8; boards written by older bridges are migrated in place
+OWNER_COLUMNS = (("agents", "owner"), ("messages", "owner"), ("log", "owner"))
 
 
 def _id(prefix: str) -> str:
@@ -93,6 +100,10 @@ class Board:
         self._db = sqlite3.connect(self.dir / "board.db", check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
+        for table, column in OWNER_COLUMNS:
+            have = {r[1] for r in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
+            if column not in have:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         self.labels: dict[str, str] = {}
 
     def close(self) -> None:
@@ -110,8 +121,9 @@ class Board:
         with self._lock:
             self._db.execute(sql, args)
 
-    def note(self, line: str) -> None:
-        self._x("INSERT INTO log VALUES (?, ?)", (time.time(), line[:300]))
+    def note(self, line: str, owner: str | None = None) -> None:
+        """A log line. owner=None marks a shared line (claims, joins); a session's own text gets its owner."""
+        self._x("INSERT INTO log (ts, line, owner) VALUES (?, ?, ?)", (time.time(), line[:300], "\x00shared" if owner is None else owner))
         self._x("DELETE FROM log WHERE ts < (SELECT ts FROM log ORDER BY ts DESC LIMIT 1 OFFSET 199)")
 
     def name(self, run_id: str) -> str:
@@ -119,25 +131,26 @@ class Board:
 
     # ---- agents ----
 
-    def join(self, run_id: str, engine: str, label: str, doing: str = "", via: str = "bridge") -> dict:
+    def join(self, run_id: str, engine: str, label: str, doing: str = "", via: str = "bridge", owner: str = "") -> dict:
         now = time.time()
         self.labels[run_id] = f"{engine} {run_id}"
         with self._lock:
             had = self._q("SELECT via FROM agents WHERE run_id=?", (run_id,))
-            self._x("INSERT OR REPLACE INTO agents VALUES (?,?,?,?,?,?,COALESCE((SELECT joined FROM agents WHERE run_id=?),?),?)",
+            self._x("INSERT OR REPLACE INTO agents (run_id, engine, label, state, doing, heartbeat, joined, via, owner) "
+                    "VALUES (?,?,?,?,?,?,COALESCE((SELECT joined FROM agents WHERE run_id=?),?),?,?)",
                     (run_id, engine, label, "working", doing or label, now, run_id, now,
-                     via if not had or via == "mcp" else had[0]["via"]))
+                     via if not had or via == "mcp" else had[0]["via"], owner))
         if via == "mcp":
             self.note(f"{engine} {run_id} connected its coordination tools")
         self.write_state()
-        return self.read()
+        return self.read(owner)
 
     def post(self, run_id: str, state: str, doing: str) -> dict:
         if state not in STATES:
             raise ValueError(f"state must be one of {', '.join(STATES)}")
         self._x("UPDATE agents SET state=?, doing=?, heartbeat=? WHERE run_id=?",
                 (state, doing[:300], time.time(), run_id))
-        self.note(f"{self.name(run_id)} is {state}: {doing[:120]}")
+        self.note(f"{self.name(run_id)} is {state}: {doing[:120]}", self.owner(run_id))
         self.write_state()
         return {"ok": True}
 
@@ -149,6 +162,10 @@ class Board:
                 self.write_state()
         else:
             self._x("UPDATE agents SET heartbeat=? WHERE run_id=?", (time.time(), run_id))
+
+    def owner(self, run_id: str) -> str:
+        rows = self._q("SELECT owner FROM agents WHERE run_id=?", (run_id,))
+        return rows[0]["owner"] if rows else ""
 
     def leave(self, run_id: str) -> None:
         released = self.release(run_id, "all", quiet=True)
@@ -273,7 +290,8 @@ class Board:
 
     # ---- messages ----
 
-    def send(self, run_id: str, to: str, kind: str, body: str, thread: str = "") -> dict:
+    def send(self, run_id: str, to: str, kind: str, body: str, thread: str = "", owner: str = "") -> dict:
+        """A message from run_id. It is visible only to runs and the Claude peer of the same owner."""
         if kind not in KINDS:
             raise ValueError(f"kind must be one of {', '.join(KINDS)}")
         body = body.strip()
@@ -281,17 +299,19 @@ class Board:
             raise ValueError("body is empty")
         mid = _id("m")
         now = time.time()
-        self._x("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
-                (mid, thread or mid, run_id, to or "all", kind, body[:MAX_BODY], now, now + MESSAGE_TTL))
-        self.note(f"{self.name(run_id)} → {to or 'all'} ({kind}): {body[:100]}")
+        self._x("INSERT INTO messages (id, thread, sender, recipient, kind, body, created_at, expires_at, owner) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (mid, thread or mid, run_id, to or "all", kind, body[:MAX_BODY], now, now + MESSAGE_TTL, owner))
+        self.note(f"{self.name(run_id)} → {to or 'all'} ({kind}): {body[:100]}", owner)
         self.write_state()
         return {"message_id": mid, "thread": thread or mid}
 
-    def inbox(self, run_id: str, mark_read: bool = True) -> list[dict]:
+    def inbox(self, run_id: str, mark_read: bool = True, owner: str = "") -> list[dict]:
+        """Unread messages for run_id from its own session (owner) only."""
         rows = self._q(
-            "SELECT * FROM messages WHERE sender<>? AND (recipient='all' OR recipient=?) AND expires_at>? "
+            "SELECT * FROM messages WHERE sender<>? AND (recipient='all' OR recipient=?) AND expires_at>? AND owner=? "
             "AND id NOT IN (SELECT message_id FROM reads WHERE run_id=?) ORDER BY created_at",
-            (run_id, run_id, time.time(), run_id))
+            (run_id, run_id, time.time(), owner, run_id))
         out = [{"id": r["id"], "thread": r["thread"], "from": r["sender"], "from_name": self.name(r["sender"]),
                 "kind": r["kind"], "body": r["body"], "at": r["created_at"]} for r in rows]
         if mark_read and out:
@@ -299,9 +319,9 @@ class Board:
                 self._db.executemany("INSERT OR IGNORE INTO reads VALUES (?,?)", [(run_id, m["id"]) for m in out])
         return out
 
-    def digest(self, run_id: str) -> str:
+    def digest(self, run_id: str, owner: str = "") -> str:
         """Unread messages as a prompt prefix, marked read. Empty when there are none."""
-        msgs = self.inbox(run_id, mark_read=True)
+        msgs = self.inbox(run_id, mark_read=True, owner=owner)
         if not msgs:
             return ""
         lines = [f"- [{m['kind']}] from {m['from_name']}: {m['body'][:1500]}" for m in msgs[-10:]]
@@ -310,15 +330,29 @@ class Board:
 
     # ---- reads ----
 
-    def read(self) -> dict:
+    def read(self, viewer: str | None = "") -> dict:
+        """The board as one session (viewer = its owner) may see it: the whole roster and every claim, since
+        file safety needs them, but only its own session's messages, doing text and log lines. Agents of
+        other sessions are listed as engine, run id and state. viewer=None is the shared view (STATE.md)."""
         now = time.time()
-        agents = [dict(r) for r in self._q("SELECT * FROM agents ORDER BY joined")]
-        claims = [dict(r) | {"holder_name": self.name(r["holder"]), "expired": r["expires_at"] <= now}
+        agents = []
+        for r in self._q("SELECT * FROM agents ORDER BY joined"):
+            row = {k: r[k] for k in ("run_id", "engine", "state", "heartbeat", "joined", "via")}
+            if viewer is not None and r["owner"] == viewer:
+                row.update(label=r["label"], doing=r["doing"], session="this session")
+            else:
+                row.update(label="", doing="", session="another session")
+            agents.append(row)
+        claims = [{k: r[k] for k in ("id", "path", "mode", "holder", "granted_at", "expires_at", "fence", "reason")}
+                  | {"holder_name": self.name(r["holder"]), "expired": r["expires_at"] <= now}
                   for r in self._q("SELECT * FROM claims WHERE released_at IS NULL ORDER BY granted_at")]
-        open_threads = [dict(r) for r in self._q(
-            "SELECT * FROM messages WHERE kind IN ('question','handoff','request') AND expires_at>? "
-            "ORDER BY created_at DESC LIMIT 10", (now,))]
-        log = [r["line"] for r in self._q("SELECT line FROM log ORDER BY ts DESC LIMIT 20")][::-1]
+        open_threads = [] if viewer is None else [
+            {k: r[k] for k in ("id", "thread", "sender", "recipient", "kind", "body", "created_at")} for r in self._q(
+                "SELECT * FROM messages WHERE kind IN ('question','handoff','request') AND expires_at>? AND owner=? "
+                "ORDER BY created_at DESC LIMIT 10", (now, viewer))]
+        log = [r["line"] for r in self._q(
+            "SELECT line FROM log WHERE owner=? OR owner=? ORDER BY ts DESC LIMIT 20",
+            ("\x00shared", "\x00shared" if viewer is None else viewer))][::-1]
         return {"workspace": self.cwd, "agents": agents, "claims": claims, "open": open_threads, "log": log}
 
     def brief_claims(self, run_id: str) -> str:
@@ -328,22 +362,21 @@ class Board:
     def write_state(self) -> None:
         """Regenerate STATE.md atomically. The bridge is its only writer."""
         try:
-            b = self.read()
+            b = self.read(None)  # the shared view: any agent in the folder can read this file
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             out = [f"# ModStage: workspace state", "",
                    f"Updated {now}. Written by the ModStage bridge; do not edit by hand.",
                    "Claim a file before editing it (stage_claim tool, or the modstage CLI) and release it after.", "",
-                   "## Agents", "", "| Agent | State | Doing | Last seen | Tools |", "|---|---|---|---|---|"]
+                   "## Agents", "", "| Agent | State | Last seen | Tools |", "|---|---|---|---|"]
             for a in b["agents"]:
                 seen = time.strftime("%H:%M:%S", time.localtime(a["heartbeat"] or 0))
-                out.append(f"| {a['engine']} {a['run_id']} | {a['state']} | {(a['doing'] or '').replace('|', '/')[:80]} | {seen} | {a['via']} |")
+                out.append(f"| {a['engine']} {a['run_id']} | {a['state']} | {seen} | {a['via']} |")
             out += ["", "## Active claims", "", "| Path | Mode | Holder | Expires | Fence |", "|---|---|---|---|---|"]
             for c in b["claims"]:
                 exp = "expired" if c["expired"] else time.strftime("%H:%M:%S", time.localtime(c["expires_at"]))
                 out.append(f"| {c['path']} | {c['mode']} | {c['holder_name']} | {exp} | {c['fence']} |")
-            out += ["", "## Open questions and handoffs", ""]
-            out += [f"- {self.name(m['sender'])} → {m['recipient']} ({m['kind']}): {m['body'][:160]}" for m in b["open"]] or ["- none"]
-            out += ["", "## Recent activity", ""] + [f"- {line}" for line in b["log"]]
+            out += ["", "Messages between agents are kept per Claude Code session and are not written here.",
+                    "", "## Recent activity", ""] + [f"- {line}" for line in b["log"]]
             tmp = self.dir / "STATE.md.tmp"
             if tmp.is_symlink():
                 tmp.unlink()  # a planted link is removed, never written through
@@ -370,6 +403,7 @@ _LOCK = threading.Lock()
 
 
 def board_for(cwd: str) -> Board:
+    cwd = os.path.realpath(cwd)  # /tmp and /private/tmp, or a linked folder, share one board and its leases
     with _LOCK:
         if cwd not in _BOARDS:
             _BOARDS[cwd] = Board(cwd)

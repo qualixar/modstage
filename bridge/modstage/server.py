@@ -1,13 +1,18 @@
 """ModStage bridge: holds Codex / Muse / Grok sessions open and serves them on localhost.
 
 Every request needs the header X-ModStage-Token with the contents of $MODSTAGE_HOME/token
-(default ~/.modstage/token, mode 0600).
+(default ~/.modstage/token, mode 0600). That token only proves the caller is on this machine as this
+user; agents run as the user and can read it. Ownership needs more: a Claude Code session registers
+(POST /sessions) and gets a secret it keeps in memory and sends as X-ModStage-Session. Runs belong to
+that secret, so an agent that reads the token file still cannot see, steer or approve its parent's runs.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import time
 import secrets
 import shutil
 import threading
@@ -51,7 +56,7 @@ def _token() -> str:
     return path.read_text().strip()
 
 
-def start_run(body: dict) -> Run:
+def start_run(body: dict, owner: str) -> Run:
     agents = registry.load()
     engine = body.get("engine", "")
     if engine not in agents:
@@ -62,7 +67,7 @@ def start_run(body: dict) -> Run:
     prompt = (body.get("prompt") or "").strip()
     if not prompt:
         raise ValueError("prompt is empty")
-    cwd = os.path.abspath(os.path.expanduser(body.get("cwd") or os.getcwd()))
+    cwd = os.path.realpath(os.path.expanduser(body.get("cwd") or os.getcwd()))  # one board per real folder
     if not os.path.isdir(cwd):
         raise ValueError(f"cwd {cwd} is not a folder")
     owns = body.get("owns") or []
@@ -70,7 +75,7 @@ def start_run(body: dict) -> Run:
         raise ValueError("owns must be a list of file paths or glob patterns")
     registry.check_model(engine, body.get("model"))
     run = Run(spec, prompt, cwd, body.get("model"), body.get("label"), body.get("autonomy", "ask"), owns,
-              owner=str(body.get("session") or ""))
+              owner=owner)
     run.start_images = images_from(body)
     RUNS[run.id] = run
     BOARD.register(run)
@@ -176,29 +181,42 @@ def send_refusal(run: Run) -> str:
     return run.send_refusal()
 
 
-def session_of_query(raw_query: str) -> str | None:
-    """The session a GET names: None when it names none (the CLI, tests), "" when it names an empty one.
-    parse_qs drops blank values unless asked, which once turned `session=` into "no session"."""
-    values = parse_qs(raw_query, keep_blank_values=True).get("session")
-    return None if values is None else values[0]
+# ---- sessions: the parent link ----
+
+SESSIONS: dict[str, dict] = {}  # owner (sha256 of the session secret) -> {session, at}
+MAX_SESSIONS = 512
+_SESSIONS_LOCK = threading.Lock()
 
 
-def session_of_body(body: dict) -> str | None:
-    """The session a POST names: None when the key is absent, "" when it is present but empty."""
-    return None if "session" not in body else str(body.get("session") or "")
+def owner_of(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8", "replace")).hexdigest()
 
 
-def mine(session: str | None):
-    """Runs a Claude session may see. A named session sees the runs it owns; an empty name (the mod could
-    not read its session id) sees only runs nobody owns. Fails closed: only a request naming no session
-    at all (the CLI, tests) sees every run."""
-    return [r for r in RUNS.values() if session is None or r.owner == session]
+def register_session(session: str) -> str:
+    """A Claude Code session joins: returns a fresh secret. Registering again (a reload, a restarted bridge)
+    gives a new secret and a new, empty scope; knowing a session id never grants its runs."""
+    session = str(session or "").strip()
+    if not session:
+        raise ValueError("session is required")
+    secret = secrets.token_hex(32)
+    with _SESSIONS_LOCK:
+        if len(SESSIONS) >= MAX_SESSIONS:  # forget the oldest scopes that own no run
+            owned = {r.owner for r in RUNS.values()}
+            for old in sorted((k for k in SESSIONS if k not in owned), key=lambda k: SESSIONS[k]["at"])[:64]:
+                SESSIONS.pop(old, None)
+        SESSIONS[owner_of(secret)] = {"session": session[:200], "at": time.time()}
+    return secret
 
 
-def decide(run: Run, body: dict) -> tuple[int, dict]:
+def mine(owner: str | None):
+    """Runs a scope may see: the ones it owns. None means in-process callers (tests), which see every run;
+    over HTTP there is no such caller."""
+    return [r for r in RUNS.values() if owner is None or r.owner == owner]
+
+
+def decide(run: Run, body: dict, owner: str | None = None) -> tuple[int, dict]:
     """Answer one pending approval. Only the session that owns the run may answer it."""
-    session = str(body.get("session") or "")
-    if run.owner and session != run.owner:  # an approval is answered only from the session that owns the run
+    if _not_yours(run, owner):
         return 403, {"error": "this run belongs to another Claude Code session; answer it there"}
     choice = str(body.get("choice", ""))
     if choice not in ("allow", "allow_session", "deny"):
@@ -228,10 +246,10 @@ def _same(given: str, expected: str) -> bool:
     return secrets.compare_digest(given.encode("utf-8", "replace"), expected.encode("utf-8", "replace"))
 
 
-def _not_yours(run: Run, session: str | None) -> bool:
-    """True when a Claude session acts on a run another session started. Requests naming no session
-    (the CLI, tests) are allowed; an empty session name owns nothing, so it may act only on ownerless runs."""
-    return bool(session is not None and run.owner and session != run.owner)
+def _not_yours(run: Run, owner: str | None) -> bool:
+    """True when a scope acts on a run it does not own. Ownerless runs belong to no scope. None is an
+    in-process caller (tests)."""
+    return owner is not None and run.owner != owner
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -259,26 +277,33 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _caller(self, body: dict) -> Run | None:
-        """The run making a board call: its own per-run token, or the main token plus run_id."""
+        """The run making a board call: identified by its own per-run token only, so nothing else can act
+        as a run on the board."""
         run_token = self.headers.get("X-ModStage-Run-Token", "")
-        if run_token:
-            for run in list(RUNS.values()):
-                if _same(run_token, run.board_token):
-                    return run
-            self._reply(401, {"error": "unknown run token"})
-            return None
-        if _same(self.headers.get("X-ModStage-Token", ""), self.token):
-            run = RUNS.get(str(body.get("run_id", "")))
-            if run is None:
-                self._reply(404, {"error": "run_id is required with the main token"})
-            return run
-        self._reply(401, {"error": "bad or missing token"})
+        for run in list(RUNS.values()):
+            if run_token and _same(run_token, run.board_token):
+                return run
+        self._reply(401, {"error": "a board call needs this run's own X-ModStage-Run-Token"})
         return None
 
-    def _run(self, rid: str) -> Run | None:
+    def _owner(self) -> str | None:
+        """The calling session's scope from X-ModStage-Session. Replies 401 and returns None when it is
+        missing or unknown (a restarted bridge forgets scopes: the mod registers again)."""
+        secret = self.headers.get("X-ModStage-Session", "")
+        owner = owner_of(secret) if secret else ""
+        if not secret or owner not in SESSIONS:
+            self._reply(401, {"error": "this call needs a registered Claude Code session (X-ModStage-Session); "
+                                       "register with POST /sessions", "code": "session"})
+            return None
+        return owner
+
+    def _own_run(self, rid: str, owner: str) -> Run | None:
+        """The caller's own run, or a 404 that reads the same whether the run is someone else's or gone,
+        so a session cannot even learn that another session's run exists."""
         run = RUNS.get(rid)
-        if run is None:
-            self._reply(404, {"error": f"no run {rid}"})
+        if run is None or _not_yours(run, owner):
+            self._reply(404, {"error": f"no run {rid} in this session"})
+            return None
         return run
 
     def _known_token(self) -> bool:
@@ -308,31 +333,24 @@ class Handler(BaseHTTPRequestHandler):
     def _get(self):
         url = urlparse(self.path)
         if url.path == "/health":
-            return self._reply(200, {"ok": True, "runs": len(RUNS)})
+            return self._reply(200, {"ok": True})  # unauthenticated: says nothing about anyone's runs
         if not self._authorised():
             return
         query = parse_qs(url.query)
         parts = [p for p in url.path.split("/") if p]
-        session = session_of_query(url.query)
-        if parts == ["runs"]:
-            own = mine(session)
-            return self._reply(200, {"runs": [r.summary() for r in own], "others": len(RUNS) - len(own)})
         if parts == ["agents"]:
             return self._reply(200, registry.doctor())
-        if parts == ["board"]:
-            cwd = query.get("cwd", [""])[0]
-            if cwd and not (os.path.isabs(cwd) and os.path.isdir(cwd)):
-                return self._reply(400, {"error": "cwd must be an existing absolute folder"})
-            boards = [board_for(os.path.normpath(cwd))] if cwd else all_boards()
-            return self._reply(200, {"boards": [b.read() for b in boards]})
         if parts == ["coordination"]:
             return self._reply(200, {"board": "on", "slm_mesh": MESH.state, "slm_mesh_note": MESH.reason})
+        owner = self._owner()  # everything below is one session's own
+        if owner is None:
+            return
+        if parts == ["runs"]:
+            return self._reply(200, {"runs": [r.summary() for r in mine(owner)]})
         if parts == ["inbox"]:
-            items = [item for r in mine(session) for item in r.summary()["pending"]]
+            items = [item for r in mine(owner) for item in r.summary()["pending"]]
             return self._reply(200, {"pending": sorted(items, key=lambda i: i["asked_at"])})
-        if len(parts) >= 2 and parts[0] == "runs" and (run := self._run(parts[1])):
-            if _not_yours(run, session):
-                return self._reply(403, {"error": "this run belongs to another Claude Code session"})
+        if len(parts) >= 2 and parts[0] == "runs" and (run := self._own_run(parts[1], owner)):
             if len(parts) == 2:
                 return self._reply(200, run.detail(int(query.get("after", ["0"])[0])))
             if parts[2] == "wait":
@@ -341,7 +359,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = run.detail(int(query.get("after", ["0"])[0]))
                 data["timed_out"] = not finished
                 return self._reply(200, data)
-        self._reply(404, {"error": "not found"})
+        if not (len(parts) >= 2 and parts[0] == "runs"):
+            self._reply(404, {"error": "not found"})
 
     def _post(self):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
@@ -372,26 +391,28 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorised():
             return
         try:
-            if len(parts) == 2 and parts[0] == "claude":
-                from . import claude_peer
-                if parts[1] == "edit_check":
-                    held = claude_peer.edit_conflicts(str(body.get("session") or ""), str(body.get("path") or ""))
-                    return self._reply(200, {"held": held})
-                return self._reply(200, claude_peer.perform(parts[1], body, wake))
+            if parts == ["sessions"]:
+                return self._reply(200, {"key": register_session(str(body.get("session") or ""))})
             if parts == ["agents", "refresh"]:
                 registry.refresh_models(force=True)
                 return self._reply(200, {"ok": "asking each agent CLI for its models again"})
+            owner = self._owner()  # everything below is one session's own
+            if owner is None:
+                return
+            if len(parts) == 2 and parts[0] == "claude":
+                from . import claude_peer
+                if parts[1] == "edit_check":
+                    return self._reply(200, {"held": claude_peer.edit_conflicts(owner, str(body.get("path") or ""))})
+                return self._reply(200, claude_peer.perform(parts[1], body, wake, owner))
             if parts == ["runs"]:
                 images_from(body)  # refuse a bad path before starting anything
-                return self._reply(200, start_run(body).summary())
-            if len(parts) == 3 and parts[0] == "runs" and (run := self._run(parts[1])):
-                if parts[2] != "decide" and _not_yours(run, session_of_body(body)):
-                    return self._reply(403, {"error": "this run belongs to another Claude Code session"})
+                return self._reply(200, start_run(body, owner).summary())
+            if len(parts) == 3 and parts[0] == "runs" and (run := self._own_run(parts[1], owner)):
                 if parts[2] == "close":
                     close_run(run)
                     return self._reply(200, {"ok": "closed"})
                 if parts[2] == "decide":
-                    return self._reply(*decide(run, body))
+                    return self._reply(*decide(run, body, owner))
                 text = str(body.get("text", "")).strip()
                 if parts[2] == "send" and not text:
                     return self._reply(400, {"error": "message is empty"})
@@ -413,8 +434,8 @@ class Handler(BaseHTTPRequestHandler):
                     if run.status not in ("starting", "running"):
                         return self._reply(200, {"ok": "nothing to interrupt: the run is not working"})
                     return self._reply(200, {"ok": run.adapter.interrupt()})
-            elif len(parts) == 3:
-                return
+            elif len(parts) == 3 and parts[0] == "runs":
+                return  # _own_run replied
             self._reply(404, {"error": "not found"})
         except ValueError as exc:
             self._reply(400, {"error": str(exc)})
@@ -424,7 +445,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def with_digest(run: Run, text: str) -> str:
     """Prepend unread messages from other agents to a new turn's text."""
-    digest = board_for(run.cwd).digest(run.id)
+    digest = board_for(run.cwd).digest(run.id, run.owner)
     return f"{digest}\n{text}" if digest else text
 
 

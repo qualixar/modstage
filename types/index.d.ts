@@ -88,9 +88,10 @@ declare module 'claude-code' {
       claudeFeeds: Record<string, RunEvent[]>
       launchAgent: string
       launchModel: string
-      others: number
-      /** the user's last own prompt: seconds since the epoch, and its text (first 500 chars) */
-      userPrompt: { at: number; text: string }
+      /** the user's last own prompt: seconds since the epoch, the decision it states, and whether one decide used it (never its text) */
+      userPrompt: { at: number; decision: string; used: boolean }
+      /** this session's capability at the bridge (held in host memory, never on disk) and its board peer id */
+      sessionKey: { key: string; peer: string }
       /** this session's id from the classic hook envelope: the fallback when $.session.id() gives nothing */
       hookSession: string
     }

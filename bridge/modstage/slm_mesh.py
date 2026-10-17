@@ -1,8 +1,9 @@
 """Optional mirror to SuperLocalMemory's SLM-mesh, for people who run SLM.
 
 When the SLM daemon answers on 127.0.0.1:8765 and the `slm` CLI is installed, each ModStage run is
-registered as a mesh peer, board messages are mirrored to the mesh, and exclusive claims are
-mirrored as mesh locks, so Claude Code windows and bots outside ModStage see the same picture.
+registered as a mesh peer (engine and run id only, never prompt text) and exclusive claims are
+mirrored as mesh locks, so Claude Code windows and bots outside ModStage see which files are held.
+Board messages are never mirrored: they belong to one Claude Code session, and the mesh is machine-wide.
 The local board stays the source of truth: every call here is best-effort with short timeouts,
 and the mirror switches itself off on the first failure it cannot recover from.
 
@@ -75,7 +76,7 @@ class Mesh:
     # ---- mirror hooks (called by the board API and the bridge keeper) ----
 
     def joined(self, run) -> None:
-        res = self._post("/register", {"session_id": f"modstage-{run.id}", "summary": f"{run.engine}: {run.label}"[:200],
+        res = self._post("/register", {"session_id": f"modstage-{run.id}", "summary": f"ModStage {run.engine} run {run.id}",  # no prompt text leaves the bridge
                                        "project_path": run.cwd, "agent_type": f"modstage-{run.engine}"})
         peer = (res or {}).get("peer_id")
         if peer:
@@ -86,14 +87,6 @@ class Mesh:
         peer = self._peers.get(run.id)
         if peer:
             self._post("/heartbeat", {"peer_id": peer})
-
-    def message(self, run, to: str, body: str) -> None:
-        peer = self._peers.get(run.id)
-        if peer:
-            target = self._peers.get(to) or ("broadcast" if to == "all" else None)
-            if target is None:
-                return  # only mirror to ModStage runs or as a broadcast, never to an arbitrary mesh peer
-            self._post("/send", {"from_peer": peer, "to": target, "content": f"[modstage {run.engine} {run.id}] {body}"[:4000]})
 
     def lock(self, run, path: str, acquire: bool) -> None:
         if self._peers.get(run.id):
