@@ -9,8 +9,10 @@ Leases (ideas from yesitsfebreeze/mesh and coord, both MIT; our own implementati
 - exclusive conflicts with any other holder's exclusive or shared lease on an overlapping path;
   shared conflicts with exclusive; advisory never conflicts. Conflicts are DENIED, never granted.
 - every grant bumps the path's fence; the same holder re-claiming renews and keeps the fence.
-- leases of a working run are renewed by the bridge; they lapse on silence; all are released
-  when the run ends. Expired leases stay visible until swept.
+- leases of a working run are renewed by the bridge; they lapse on silence (an idle, interrupted or
+  paused run is NOT renewed); all are released when the run ends. Expired leases stay visible until swept.
+- check_write() is the fence at the write itself: it runs on every write an adapter can intercept and
+  rejects a writer whose lease lapsed and was taken over, even if that run was allowed to edit earlier.
 Messages are framed for the receiver as information from another agent, not user instructions.
 """
 
@@ -202,6 +204,46 @@ class Board:
             self.note(f"{self.name(run_id)} was denied {d['path']}: held by {d['holder_name']}")
         self.write_state()
         return {"granted": granted, "denied": denied}
+
+    def check_write(self, run_id: str, path: str, ttl_s: float = DEFAULT_TTL) -> dict:
+        """Fence check for one write by `run_id` to `path` (workspace-relative or absolute inside the workspace).
+
+        Allowed when the run holds a live lease on the path whose fence is the path's highest, or when nobody
+        else holds a live lease and this run has not been overtaken (then the write claims the path: new fence).
+        Rejected when another run holds a live lease, or when a newer fence was granted to someone else after
+        this run's last lease on the path. Returns {ok, path, fence, reason, holder}. Runs under one lock so
+        two writers cannot both pass."""
+        root = os.path.realpath(self.cwd)  # links resolved on both sides, so /var and /private/var agree
+        rel = os.path.relpath(os.path.realpath(os.path.join(root, os.path.expanduser(path))), root).replace(os.sep, "/")
+        if rel == ".." or rel.startswith("../"):
+            return {"ok": False, "path": rel, "reason": f"{path} is outside the run's folder"}
+        now = time.time()
+        with self._lock:
+            blockers = self.holders(run_id, [rel], "exclusive")
+            if blockers:
+                b = blockers[0]
+                return {"ok": False, "path": rel, "holder": b["holder"], "fence": b["fence"],
+                        "reason": f"{rel} is held by {b['holder_name']} (fence {b['fence']}); this run's lease on it is not current"}
+            rows = [r for r in self._q("SELECT * FROM claims") if overlaps(rel, r["path"])]
+            top = max((r["fence"] for r in rows), default=0)
+            mine = [r for r in rows if r["holder"] == run_id]
+            live = [r for r in mine if r["released_at"] is None and r["expires_at"] > now]
+            if live:
+                best = max(r["fence"] for r in live)
+                if best >= top:
+                    return {"ok": True, "path": rel, "fence": best}
+                return {"ok": False, "path": rel, "fence": best, "reason":
+                        f"{rel}: this run's fence {best} is stale, fence {top} was granted since"}
+            if mine and max(r["fence"] for r in mine) < top:
+                last = max(r["fence"] for r in mine)
+                return {"ok": False, "path": rel, "fence": last, "reason":
+                        f"{rel}: this run's lease (fence {last}) lapsed and fence {top} was granted since; "
+                        "claim the file again and re-read it before writing"}
+            res = self.claim(run_id, [rel], "exclusive", ttl_s, reason="write")
+            if res["granted"]:
+                return {"ok": True, "path": rel, "fence": res["granted"][0]["fence"]}
+            d = res["denied"][0]
+            return {"ok": False, "path": rel, "holder": d["holder"], "reason": f"{rel} is held by {d['holder_name']}"}
 
     def renew(self, run_id: str, claim_id: str = "all", ttl_s: float = DEFAULT_TTL) -> int:
         until = time.time() + max(10.0, min(float(ttl_s or DEFAULT_TTL), MAX_TTL))

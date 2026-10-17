@@ -137,6 +137,23 @@ class Run:
         for full in fresh:
             BOARD.touched(self, full)
 
+    def guard_write(self, path: str) -> tuple[bool, str]:
+        """The fence at the write: ask the board whether this run may write `path` right now. Called by an
+        adapter before it lets a write happen, on every write, whatever approval the run was given earlier.
+        A rejection is logged on this run and on the run that holds the file."""
+        from .board import board_for
+        board = board_for(self.cwd)
+        verdict = board.check_write(self.id, path)
+        if verdict["ok"]:
+            return True, ""
+        reason = verdict["reason"]
+        self.add("conflict", f"write blocked: {reason}")
+        board.note(f"{board.name(self.id)} write to {verdict['path']} blocked: {reason}"[:300])
+        other = RUNS.get(verdict.get("holder", ""))
+        if other is not None and other is not self:
+            other.add("conflict", f"{self.engine} run {self.id} tried to write {verdict['path']}, which this run holds; the write was blocked")
+        return False, reason
+
     # ---- the Needs-you inbox ----
 
     def request_approval(self, kind: str, title: str, detail: str, answer: Answer,
