@@ -2,7 +2,7 @@
 
 The bridge injects this into every agent session it starts:
   command: <python>  args: ["-m", "modstage.mcp_stdio"]
-  env: MODSTAGE_RUN_TOKEN (this run's identity), MODSTAGE_URL, PYTHONPATH (the bridge folder)
+  env: MODSTAGE_RUN_TOKEN (this run's identity), MODSTAGE_URL, PYTHONPATH (the bridge folder, set by mcp_server)
 Each tool call is forwarded to the bridge's /board API with the run's token, so an agent can only
 act as itself. Standard library only; speaks MCP (JSON-RPC 2.0, newline-delimited) on stdin/stdout.
 """

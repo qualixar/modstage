@@ -11,10 +11,11 @@ CLI = os.path.join(BRIDGE_DIR, "modstage-cli")
 
 def agent_env(run) -> dict[str, str]:
     """Environment for the agent process and its ModStage tools: identity is the run's own token.
-    PYTHONSAFEPATH (3.11+) keeps the agent's folder off sys.path for any Python we start there."""
+    Only MODSTAGE_* variables: this env is the agent's own, so it must not touch the agent's Python
+    (PYTHONPATH / PYTHONSAFEPATH would break sibling imports in its scripts). Shadowing protection for
+    Python that ModStage starts itself lives in mcp_server / safe_python."""
     return {"MODSTAGE_RUN_TOKEN": run.board_token, "MODSTAGE_RUN_ID": run.id,
-            "MODSTAGE_URL": f"http://127.0.0.1:{os.environ.get('MODSTAGE_PORT', '47321')}",
-            "PYTHONPATH": BRIDGE_DIR, "PYTHONSAFEPATH": "1"}
+            "MODSTAGE_URL": f"http://127.0.0.1:{os.environ.get('MODSTAGE_PORT', '47321')}"}
 
 
 # Start a modstage module so the working folder (an agent's repository) can never shadow a standard-library
@@ -31,7 +32,7 @@ def safe_python(module: str) -> list[str]:
 
 def mcp_server(run) -> dict:
     """The ModStage MCP server for this run: {command, args, env}."""
-    return {"command": sys.executable, "args": safe_python("modstage.mcp_stdio"), "env": agent_env(run)}
+    return {"command": sys.executable, "args": safe_python("modstage.mcp_stdio"), "env": {**agent_env(run), "PYTHONPATH": BRIDGE_DIR, "PYTHONSAFEPATH": "1"}}
 
 
 def brief(run) -> str:
