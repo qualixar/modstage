@@ -91,6 +91,8 @@ declare module 'claude-code' {
       others: number
       /** the user's last own prompt: seconds since the epoch, and its text (first 500 chars) */
       userPrompt: { at: number; text: string }
+      /** this session's id from the classic hook envelope: the fallback when $.session.id() gives nothing */
+      hookSession: string
     }
   }
 }

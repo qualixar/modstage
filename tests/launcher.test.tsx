@@ -13,6 +13,7 @@ function fakeBridge(on: any, posted: any[], spawned: any[] = [], sent: any[] = [
   on('session.send', async (_$: any, e: any) => { sent.push(e); return { value: { isSent: true } } })
   on('fs.read', async () => ({ value: 'test-token' }))
   on('session.cwd', async () => ({ value: '/home/test/project' }))
+  on('session.id', async () => ({ value: 'sess-L' }))  // a real session has an id; without one a start is refused
   on('ui.toast', async (_$: any, e: any) => { (globalThis as any).toasts = [...((globalThis as any).toasts ?? []), e.text]; return { value: undefined } })
   on('http.fetch', async (_$: any, e: any) => {
     const path = new URL(e.url).pathname

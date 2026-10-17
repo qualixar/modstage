@@ -176,9 +176,23 @@ def send_refusal(run: Run) -> str:
     return run.send_refusal()
 
 
-def mine(session: str):
-    """Runs a Claude session may see: its own, or every run when no session is named (CLI, tests)."""
-    return [r for r in RUNS.values() if not session or r.owner == session]
+def session_of_query(raw_query: str) -> str | None:
+    """The session a GET names: None when it names none (the CLI, tests), "" when it names an empty one.
+    parse_qs drops blank values unless asked, which once turned `session=` into "no session"."""
+    values = parse_qs(raw_query, keep_blank_values=True).get("session")
+    return None if values is None else values[0]
+
+
+def session_of_body(body: dict) -> str | None:
+    """The session a POST names: None when the key is absent, "" when it is present but empty."""
+    return None if "session" not in body else str(body.get("session") or "")
+
+
+def mine(session: str | None):
+    """Runs a Claude session may see. A named session sees the runs it owns; an empty name (the mod could
+    not read its session id) sees only runs nobody owns. Fails closed: only a request naming no session
+    at all (the CLI, tests) sees every run."""
+    return [r for r in RUNS.values() if session is None or r.owner == session]
 
 
 def decide(run: Run, body: dict) -> tuple[int, dict]:
@@ -214,10 +228,10 @@ def _same(given: str, expected: str) -> bool:
     return secrets.compare_digest(given.encode("utf-8", "replace"), expected.encode("utf-8", "replace"))
 
 
-def _not_yours(run: Run, session: str) -> bool:
-    """True when a Claude session acts on a run another session started. Requests without a session
-    (the CLI, tests) are allowed; the mod always names its session."""
-    return bool(run.owner and session and session != run.owner)
+def _not_yours(run: Run, session: str | None) -> bool:
+    """True when a Claude session acts on a run another session started. Requests naming no session
+    (the CLI, tests) are allowed; an empty session name owns nothing, so it may act only on ownerless runs."""
+    return bool(session is not None and run.owner and session != run.owner)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -299,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         query = parse_qs(url.query)
         parts = [p for p in url.path.split("/") if p]
-        session = query.get("session", [""])[0]
+        session = session_of_query(url.query)
         if parts == ["runs"]:
             own = mine(session)
             return self._reply(200, {"runs": [r.summary() for r in own], "others": len(RUNS) - len(own)})
@@ -371,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
                 images_from(body)  # refuse a bad path before starting anything
                 return self._reply(200, start_run(body).summary())
             if len(parts) == 3 and parts[0] == "runs" and (run := self._run(parts[1])):
-                if parts[2] != "decide" and _not_yours(run, str(body.get("session") or "")):
+                if parts[2] != "decide" and _not_yours(run, session_of_body(body)):
                     return self._reply(403, {"error": "this run belongs to another Claude Code session"})
                 if parts[2] == "close":
                     close_run(run)

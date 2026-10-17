@@ -28,6 +28,9 @@ const launchModel = atom({ plugin: 'modstage', key: 'launchModel' } as const, ''
 const others = atom({ plugin: 'modstage', key: 'others' } as const, 0)
 // the last prompt the user themself submitted (seconds, as the bridge stamps approvals); stage_decide needs one newer than the approval
 const userPrompt = atom({ plugin: 'modstage', key: 'userPrompt' } as const, { at: 0, text: '' })
+// this session's id as the classic hook envelope carried it: the fallback when $.session.id() gives nothing
+const hookSession = atom({ plugin: 'modstage', key: 'hookSession' } as const, '')
+let sessionIdError = ''
 // prompt origins that are the user's own gesture; a peer session, a plugin, a schedule or a task notification is not
 const USER_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 const RUNNING = new Set(['running', 'starting'])
@@ -79,10 +82,31 @@ async function ensureBridge($: any): Promise<void> {
 /** This Claude Code session's id: runs belong to the session that started them (it changes after /clear). */
 async function sessionId($: any): Promise<string> {
   try {
-    return String((await $.session.id()) ?? '')
-  } catch {
-    return ''
+    const id = String((await $.session.id()) ?? '')
+    if (id) return id
+    sessionIdError = '$.session.id() returned nothing'
+  } catch (err) {
+    sessionIdError = `$.session.id() failed: ${String((err as Error)?.message ?? err).slice(0, 160)}`
   }
+  return String((await read($, hookSession)) ?? '')
+}
+
+/** The session id a run is started under. Refuses when there is none: an ownerless run would be shown to,
+ *  and could be steered from, every other session that cannot read its id either. */
+async function ownSession($: any): Promise<string> {
+  const id = await sessionId($)
+  if (!id) {
+    throw new Error(`ModStage could not read this Claude Code session's id (${sessionIdError || 'no id from the hooks either'}), ` +
+      'so it will not start a run that no session owns. Send any message to try again, or start a new Claude Code session.')
+  }
+  return id
+}
+
+/** Keep the session id the classic hook envelope carries (every classic event has session_id). Observe only. */
+async function rememberSession($: any, e: any, next: any) {
+  const id = e?.session_id
+  if (typeof id === 'string' && id) await update($, hookSession, () => id)
+  return next(e)
 }
 
 const mineQ = async ($: any) => `session=${encodeURIComponent(await sessionId($))}`
@@ -326,7 +350,7 @@ async function perform($: any, a: Action | NativeAction): Promise<void> {
           return
         }
         const started = await call($, 'POST', '/runs', {
-          engine: a.engine, prompt: a.prompt, autonomy: a.autonomy, cwd, session: await sessionId($), ...(a.model ? { model: a.model } : {}),
+          engine: a.engine, prompt: a.prompt, autonomy: a.autonomy, cwd, session: await ownSession($), ...(a.model ? { model: a.model } : {}),
         })
         await update($, launchAgent, () => '')
         await update($, launchModel, () => '')
@@ -461,6 +485,9 @@ const FILE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
 
 export const register: Register = on => {
   watchClaudeAgents(on)
+
+  on('classic.SessionStart', rememberSession)
+  on('classic.UserPromptSubmit', rememberSession)
 
   // Record when the user last spoke. Observe only: the prompt always goes on unchanged.
   on('prompt.submit', async ($, e: any, next) => {
@@ -609,7 +636,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__modstage__stage_start' }, async ($, e: any) => {
     const started = await call($, 'POST', '/runs', {
-      engine: e.engine, prompt: e.prompt, model: e.model, label: e.label, session: await sessionId($), images: e.images,
+      engine: e.engine, prompt: e.prompt, model: e.model, label: e.label, session: await ownSession($), images: e.images,
       autonomy: e.autonomy ?? 'ask', owns: e.owns, cwd: e.cwd ?? (await $.session.cwd()),
     })
     await $.ui.open({ id: PANE, title: 'ModStage' })

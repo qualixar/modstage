@@ -2,6 +2,17 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.8 - 2026-10-17
+
+### Security
+
+- **A session that cannot read its own id no longer sees every run.** Runs belong to the Claude Code session that started them. When the mod's `$.session.id()` failed, it sent an empty session id, and the bridge read an empty id the same way as a request that names no session (the command-line tool): it returned every session's runs, and the empty-id session could steer, interrupt or close them. Seen on 17 Oct: one desktop session showed and could act on another session's five runs. Now:
+  - **Bridge:** fails closed. A request that names an empty session sees only runs that no session owns and cannot act on an owned run. Only a request that names no session at all (the CLI, tests) sees everything. `parse_qs` now keeps blank values, so `session=` is no longer read as "no session".
+  - **Mod:** falls back to the `session_id` that every classic hook event carries (`SessionStart`, `UserPromptSubmit`), kept in `$.state` so it survives a reload.
+  - **No id at all:** the mod refuses to start a run rather than leave it ownerless, and says why.
+
+Tests: `bridge/tests/test_session_scope.py` (empty session fails closed; blank query and body values are kept), `tests/session-id.test.ts` (own id, hook-envelope fallback, refusal).
+
 ## 0.0.7 - 2026-10-17
 
 ### Fixed
