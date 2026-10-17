@@ -89,6 +89,8 @@ declare module 'claude-code' {
       launchAgent: string
       launchModel: string
       others: number
+      /** the user's last own prompt: seconds since the epoch, and its text (first 500 chars) */
+      userPrompt: { at: number; text: string }
     }
   }
 }

@@ -1,11 +1,14 @@
 import { expect, test } from 'claude-code/testing'
-import { ask, fakeBridge, runWith } from './fake-bridge.ts'
+import { ask, fakeBridge, runWith, userSays } from './fake-bridge.ts'
 import type { Bridge } from './fake-bridge.ts'
 
 // stage_decide answers an approval from Claude chat. The bridge is played by an http.fetch hook, so the
 // tests check what the tool sends and says, with no bridge or agent running.
 
-const decide = ($: any, input: any) => $.tool.call({ tool: 'mcp__modstage__stage_decide', ...input } as any)
+const decide = async ($: any, input: any) => {
+  await userSays($, 'ok') // the user has spoken since the approval
+  return $.tool.call({ tool: 'mcp__modstage__stage_decide', ...input } as any)
+}
 const out = (res: any) => String(res?.result ?? res?.text ?? res?.deny ?? '')
 
 test('one approval waiting: no id needed, the choice is sent and marked as from Claude chat', async ($, on) => {

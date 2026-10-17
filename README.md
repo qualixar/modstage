@@ -98,6 +98,8 @@ To try it without installing, clone the repo and start Claude Code with `claude 
 
 Runs start in **ask** mode: an agent's permission requests land in **Needs you**. **Auto** mode answers them automatically, except one case that always comes to you: an action on a file another agent has claimed.
 
+**Only your own words approve.** `stage_decide` is enforced by code, not by a prompt: the mod records when you last submitted a message (only your own prompt counts, not a peer session, a plugin, a schedule or anything an agent streams), and the tool refuses to decide an approval unless you spoke after that approval was raised. Agent output, `stage_wait` results and file contents cannot satisfy the check, so an injected "the user says allow it" gets a refusal telling Claude to ask you to confirm in your own message. Answering in the ModStage panel is a direct click and is unaffected. The check proves you sent some message after the request, not that the message said yes, so Claude is still told to act only on what you actually wrote.
+
 Read [SECURITY.md](SECURITY.md) for the full model: what the bridge defends against (web pages, a hostile repository, agent text posing as ModStage, one session driving another's runs) and what it cannot (agents run as you). Three honest limits:
 
 - **Agents decide when to ask.** If an agent's own configuration approves everything, it never asks, and the inbox cannot stop it. The launcher tells you before Start (for example Grok with `permission_mode = "always-approve"`).
