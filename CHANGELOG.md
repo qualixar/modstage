@@ -2,6 +2,17 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.10 - 2026-10-18
+
+### Fixed
+
+- **One message can no longer approve two actions.** Two `stage_decide` calls made at the same time both saw the user's message as unused and each sent a decision. The message is now reserved in one step before anything is sent, so exactly one call goes through. If the send fails, the message is given back only while it is still the one that was spent. Found in review of the awesome-list submission (karanb192/awesome-claude-code-mods#309); new tests cover two approvals at once and a retry after a failed send.
+- **The Bash guard no longer reads a quoted `|` as a pipe, and lets `command -v` through.** `grep -E "muse|grok"` and `command -v grok` were refused as if they started an agent. Real launches after `&&`, `;` or a real pipe are still refused.
+
+### Added
+
+- **A missing agent CLI tells you how to install it.** The start panel now shows every agent as a button; one that is not installed answers the click with the install line instead of doing nothing. The setup list, `stage_agents` and the "not installed" error carry the same line. Each install URL or package was checked live before it went in: Codex, Qwen Code and OpenCode by npm package, Muse, Grok and Antigravity by installer script, Kimi by its project page.
+
 ## 0.0.9 - 2026-10-17
 
 ### Fixed
