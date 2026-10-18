@@ -205,6 +205,44 @@ class Harness:
                 "step_type": "tool", "state": "ACTIVE", "tool_info": {"name": "run_command",
                                                                       "parameters": {"CommandLine": command}}}})
 
+    def tool_result(self, command: str, output: str) -> None:
+        """The tool started by tool(command) finishes with this output."""
+        if self.protocol == "codex-app-server":
+            self.adapter._notify({"method": "item/completed", "params": {"item": {
+                "type": "commandExecution", "command": command, "exitCode": 0, "aggregatedOutput": output}}})
+        elif self.protocol == "muse-msp":
+            self.adapter._notify({"method": "item/completed", "params": {"item": {
+                "kind": "toolCall", "tool": "bash", "toolStatus": "ok", "args": {"command": command}, "output": output}}})
+        elif self.protocol == "acp":
+            self.adapter._notify({"method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+                "content": [{"type": "content", "content": {"type": "text", "text": output}}]}}})
+        else:
+            self.adapter._event({"event": "step_update", "step_update": {
+                "step_type": "tool", "state": "DONE", "tool_info": {"name": "run_command", "output": output,
+                                                                    "parameters": {"CommandLine": command}}}})
+
+    def edit(self, path: str, old: str, new: str) -> None:
+        """The agent changes one file, reported the way its protocol reports edits."""
+        from modstage.detail import unified
+        if self.protocol == "codex-app-server":
+            self.adapter._notify({"method": "item/completed", "params": {"item": {"type": "fileChange", "id": "f1", "changes": [
+                {"path": path, "kind": "update", "diff": unified(path, old, new)}]}}})
+        elif self.protocol == "muse-msp":
+            self.adapter._notify({"method": "item/completed", "params": {"item": {
+                "kind": "toolCall", "tool": "str_replace", "toolStatus": "ok",
+                "args": {"path": path, "old_str": old, "new_str": new}}}})
+        elif self.protocol == "acp":
+            self.adapter._notify({"method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call", "toolCallId": "e1", "title": f"Edit {path}", "kind": "edit", "rawInput": {"path": path}}}})
+            self.adapter._notify({"method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "e1", "status": "completed", "kind": "edit",
+                "locations": [{"path": path}], "content": [{"type": "diff", "path": path, "oldText": old, "newText": new}]}}})
+        else:
+            info = {"name": "replace_file_content", "parameters": {"TargetFile": path, "TargetContent": old, "ReplacementContent": new}}
+            self.adapter._event({"event": "step_update", "step_update": {"step_type": "tool", "state": "ACTIVE", "tool_info": info}})
+            self.adapter._event({"event": "step_update", "step_update": {"step_type": "tool", "state": "DONE", "tool_info": info}})
+
     def ask(self, command: str = "pip install x") -> None:
         """The agent asks permission to run a command, in its own protocol."""
         if self.protocol == "codex-app-server":

@@ -13,14 +13,14 @@ const usage = { input: 1, cached: 0, output: 1, reasoning: 0, context_used: 1, c
 const props = (rows: number | undefined): any => ({
   runs: [{ id: 'a1', engine: 'muse', model: null, label: 'x', cwd: '/h', status: 'running', activity: 'thinking', elapsed_s: 3, usage, error: null }],
   selected: 'a1', feed: Array.from({ length: 50 }, (_, i) => ({ seq: i + 1, kind: 'tool', text: `step ${i}` })),
-  partial: '', age: 1, problem: '', home: '/h', canType: true, rows,
-})
+  partial: '', age: 1, problem: '', home: '/h', canType: true, })
 const height = (tree: any) => tree?.props?.height
 
-test('the head height follows its props, never its own measured rows', () => {
-  expect(height(StageClient(props(30), fakeSurface(8)))).toBe(30)
-  expect(height(StageClient(props(30), fakeSurface(90)))).toBe(30)
-  expect(height(StageClient(props(undefined), fakeSurface(8)))).toBe(16)
+test('the head draws the same whatever its region measures, and is not given a height', () => {
+  const tall = StageClient(props(undefined), fakeSurface(90))
+  const short = StageClient(props(undefined), fakeSurface(8))
+  expect(JSON.stringify(tall)).toBe(JSON.stringify(short))
+  expect(tall?.props?.height).toBeUndefined()
 })
 
 // Another way the engine unmounts a Client: props past 100000 characters. Approvals carry up to 4000

@@ -29,6 +29,8 @@ CLAUDE = {
     "start": ("works", "$.agent.spawn from the launcher or the Agent tool; tests/panel.test.tsx draws it"),
     "model": ("works", "haiku / sonnet / opus / any id, passed to $.agent.spawn"),
     "stream": ("degraded", "tool calls and the final message via hooks; no partial text stream"),
+    "tool_detail": ("degraded", "the tool.call hook records each tool's whole input and result (helpers tested in tests/claude-detail.test.ts); the test kit cannot raise a subagent's tool call (the engine sets agentId), so confirm in a live subagent tab"),
+    "edit_diff": ("degraded", "Edit, MultiEdit and Write inputs become a -/+ diff on an edit row (helpers tested); same live-confirmation caveat as above"),
     "long_turn": ("degraded", "the tab shows the current tool; no thinking stream"),
     "approval": ("degraded", "Claude Code's own permission prompts apply, not the Needs-you inbox"),
     "steer": ("works", "SendMessage to the subagent ($.session.send)"),

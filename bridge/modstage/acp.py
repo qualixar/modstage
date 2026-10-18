@@ -24,6 +24,9 @@ TICKS_PER_USD = 1e10  # Grok reports cost in ticks
 EDIT_KINDS = {"edit", "delete", "move"}
 
 
+from .detail import args_detail, clip, diff_blocks
+
+
 def _short(value, limit: int = 300) -> str:
     text = value if isinstance(value, str) else json.dumps(value)
     return text if len(text) <= limit else text[:limit] + "…"
@@ -52,6 +55,7 @@ class AcpAdapter:
         self.message = ""
         self.thought = ""
         self.tools: dict[str, str] = {}
+        self.diffs: dict[str, str] = {}  # a tool call's diff, when the agent sent it before the result
         self.in_flight = False  # a session/prompt is running
         self.held: list[tuple[str, list[dict] | None]] = []  # messages sent mid-turn, sent when it ends
         self.can_image = False
@@ -249,15 +253,20 @@ class AcpAdapter:
             raw = update.get("rawInput") or {}
             title = update.get("title") or update.get("kind") or "tool"
             self.tools[update.get("toolCallId", "")] = title
-            run.add("tool", f"{title} {_short(_what(raw), 200)}".strip())
+            seen = diff_blocks(update.get("content"))   # some agents send the diff with the call itself
+            if seen:
+                self.diffs[update.get("toolCallId", "")] = seen
+            run.add("tool", f"{title} {_short(_what(raw), 600)}".strip(), args_detail(raw, _what(raw)) or None)
             run.set(activity=f"{title}: {_short(_what(raw), 60)}")
         elif kind == "tool_call_update" and update.get("status") in ("completed", "failed"):
             title = self.tools.pop(update.get("toolCallId", ""), "tool")
             out = _content_text(update.get("content"))
-            run.add("result", f"{title} {update['status']}", _short(out, 1500) if out else None)
-            if update.get("kind") in EDIT_KINDS:
+            diff = diff_blocks(update.get("content")) or self.diffs.pop(update.get("toolCallId", ""), "")
+            self.diffs.pop(update.get("toolCallId", ""), None)
+            run.add("result", f"{title} {update['status']}", clip(out) if out else None)
+            if update.get("kind") in EDIT_KINDS or diff:
                 paths = [loc.get("path") for loc in update.get("locations") or [] if loc.get("path")]
-                run.add("edit", _short(update.get("title", title), 200))
+                run.add("edit", _short(update.get("title", title), 200), diff or None)
                 if paths:
                     run.touch(paths)
         elif kind == "plan":
@@ -279,7 +288,7 @@ class AcpAdapter:
 
     def _flush_thought(self) -> None:
         if self.thought.strip():
-            self.run.add("thinking", _short(self.thought.strip(), 1200))
+            self.run.add("thinking", _short(self.thought.strip(), 3000))
         self.thought = ""
 
     def _request(self, msg: dict) -> None:

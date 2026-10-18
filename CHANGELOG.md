@@ -2,6 +2,22 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.13 - 2026-10-18
+
+### Fixed
+
+- **The black gap between the run's card and the tabs.** The animated head was given a fixed 16 rows while its content used about 12. It now takes the height of what it draws; nothing in it depends on the room it is given, which is what made the old stage unmount.
+
+### Added
+
+- **Every agent now shows what it did in full, not a short cut of it.** Edits show the change as a diff (Codex, Grok, Kimi, Qwen Code, OpenCode, Muse, Antigravity and Claude subagents); a command is shown whole (it was cut at 160 to 200 characters); a tool call's other arguments are listed; command and tool output reaches the panel up to 4,000 characters (it was cut at 1,500); Codex MCP and dynamic tool results are recorded, which they were not before; reasoning shows up to 3,000 characters (was 1,200).
+- **Claude reads the same detail.** `stage_status` and `stage_wait` summarise each step by what came of it (`edited a.py (+3 -1)`, a result's last line), and take `detail: true` to include the full detail of each step, fenced as the agent's own words.
+- Two new rows in the parity matrix (tool input and output in full; edits show what changed), checked for every agent against its own protocol shapes. The diff fields of Codex and the ACP agents follow each protocol as documented and are marked as not yet confirmed against the real CLIs.
+
+### Known limits
+
+- A Codex command's output appears when the command ends, not while it runs.
+
 ## 0.0.12 - 2026-10-18
 
 ### Fixed
