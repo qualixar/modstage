@@ -129,3 +129,52 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await ui.unmount()
   })
 }
+
+// The listing review (18 Oct 2026) asked the band to respect the row budget the engine gives the band area, with populated and
+// empty downstream content and the survey passthrough. maxRows is that budget.
+for (const surface of ['desktop', 'terminal'] as const) {
+  const mountBand = async ($: any, on: any, props: any, downstream: boolean) => {
+    if (downstream) {
+      on('ui.render', { component: 'AbovePrompt' } as any, async ($$: any, e: any) => {
+        const { Text } = $$.ui.resolve(e)
+        return { type: 'Box', props: { key: 'bands', flexDirection: 'column' }, children: [<Text key="band:other-mod">other mod's band</Text>] } as any
+      })
+    }
+    const runs = [run('a1', 'codex', 'running'), run('a2', 'muse', 'idle'), run('a3', 'grok', 'error')]
+    const b: Bridge = { runs: Object.fromEntries(runs.map(r => [r.id, { ...r, owner: 'sess-A', pending: [] }])), decided: [], session: 'sess-A' }
+    fakeBridge(on, b)
+    on('ui.open', () => ({ value: undefined }))
+    await $.tool.call({ tool: 'mcp__modstage__stage_start', engine: 'codex', prompt: 'x' } as any)
+    return $.ui.mount({ plugin: 'modstage', surface, component: 'AbovePrompt', props: { hasSurvey: false, ...props } as any, viewport: { columns: 120, rows: 6 } })
+  }
+
+  test(`no room in the band area: ModStage's band steps aside and the other mods' bands stay (${surface})`, async ($, on) => {
+    const ui: any = await mountBand($, on, { maxRows: 0 }, true)
+    expect(await ui.find({ text: /other mod's band/ })).toBeTruthy()
+    expect(await ui.find({ key: 'band-title' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`one or two rows of room: one compact row, no chip per run, others kept (${surface})`, async ($, on) => {
+    const ui: any = await mountBand($, on, { maxRows: 2 }, true)
+    expect(await ui.find({ text: /other mod's band/ })).toBeTruthy()
+    expect(await ui.find({ key: 'band-title' })).toBeTruthy()
+    expect(await ui.find({ key: 'stage-open-btn' })).toBeTruthy()
+    for (const id of ['a1', 'a2', 'a3']) expect(await ui.find({ key: `band:${id}` })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`room to spare: the full band with a chip per run, beside the other mods' band (${surface})`, async ($, on) => {
+    const ui: any = await mountBand($, on, { maxRows: 12 }, true)
+    expect(await ui.find({ text: /other mod's band/ })).toBeTruthy()
+    for (const id of ['a1', 'a2', 'a3']) expect(await ui.find({ key: `band:${id}` })).toBeTruthy()
+    await ui.unmount()
+  })
+
+  test(`nothing downstream and no stated budget: the band draws as it always did (${surface})`, async ($, on) => {
+    const ui: any = await mountBand($, on, {}, false)
+    expect(await ui.find({ key: 'band-title' })).toBeTruthy()
+    expect(await ui.find({ key: 'band:a1' })).toBeTruthy()
+    await ui.unmount()
+  })
+}

@@ -11,6 +11,7 @@ import { ANSWER_MS, CLAUDE_AGENT, PRESS_MS, clearDrafts, draftKeyOf, setDraft, d
 import type { Answered, NativeAction } from './ui/native.tsx'
 import { bandRuns, drawHead, drawTabs, forClient, statusGlyph } from './ui/stage.tsx'
 import { widthFor } from './ui/head.ts'
+import { colourOf } from './ui/palette.ts'
 import { drawTranscript, FIRST_PAGE, followsLatest, PAGE } from './ui/transcript.tsx'
 import { stackBand } from './ui/bands.ts'
 import type { Action, StageProps } from './ui/stage.tsx'
@@ -1019,6 +1020,11 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const rest = await next(e).catch(() => undefined) // other mods' bands stay: only a survey is allowed to hide ours; a failing mod beneath must not take ours down
     if ((e.props as any).hasSurvey) return rest
+    // The row budget the engine gives the whole band area: no room, no ModStage band (the others keep theirs); room for one or
+    // two rows, one compact row (title, counts, Open); otherwise the full band with a chip per run.
+    const budget = Number((e.props as any).maxRows)
+    if (Number.isFinite(budget) && budget < 1) return rest
+    const compact = Number.isFinite(budget) && budget <= 2
     const { Box, Text, Button } = $.ui.resolve(e)
     const list = [...((await read($, runs)) as RunSummary[]), ...liveClaude((await read($, claudeRuns)) as RunSummary[])]
     const waiting = ((await read($, inbox)) as Pending[]).length
@@ -1034,7 +1040,7 @@ export const register: Register = on => {
       await revealInbox($)
     }
     const mine = (
-      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+      <Box flexDirection="row" columnGap={1} flexWrap={compact ? undefined : 'wrap'}>
         <Box key="band-title" flexDirection="row">
           <Text color="#D97757" bold>✻ </Text>
           <Button key="stage-open" label="ModStage" plain hover={{ color: '#D97757', bold: true } as any} onPress={() => open()} />
@@ -1042,14 +1048,14 @@ export const register: Register = on => {
         {waiting ? <Button key="band-needs" label={`⚑ ${waiting} need${waiting === 1 ? 's' : ''} you`} variant="primary"
           onPress={() => openInbox()} /> : null}
         <Text dimColor>{list.length === 0 ? '· no runs yet' : `· ${working.length} working · ${list.length} run${list.length === 1 ? '' : 's'}`}</Text>
-        {band.shown.map(r => (
+        {compact ? null : band.shown.map(r => (
           <Box key={`band:${r.id}`} flexDirection="row">
-            <Text color={r.color ?? '#CDD6F4'}>{statusGlyph(r.status)}</Text>
-            <Button key={`bandbtn:${r.id}`} label={r.engine} plain hover={{ color: r.color ?? '#CDD6F4' } as any}
+            <Text color={colourOf(r)}>{statusGlyph(r.status)}</Text>
+            <Button key={`bandbtn:${r.id}`} label={r.engine} plain hover={{ color: colourOf(r) } as any}
               onPress={() => open(r.engine === 'claude' ? `claude:${r.id}` : r.id)} />
           </Box>
         ))}
-        {band.hidden ? <Button key="band-more" label={`+${band.hidden} more`} plain onPress={() => open()} /> : null}
+        {!compact && band.hidden ? <Button key="band-more" label={`+${band.hidden} more`} plain onPress={() => open()} /> : null}
         <Button key="stage-open-btn" label="Open" variant="primary" onPress={() => open()} />
       </Box>
     )
