@@ -5,7 +5,7 @@ import { mock } from 'claude-code/testing'
 // that session's runs and answers 404 for another session's run. Recorded calls carry the caller as `session`.
 
 export type Bridge = { runs: Record<string, any>; decided: any[]; session: string; toasts?: string[]; sent?: any[]; waits?: string[]
-  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean; failDecide?: boolean; inboxDown?: boolean; inboxGate?: Promise<unknown>; inboxCalls?: number; clock?: any; decideFault?: 'lost-reply' | 'error-after-apply' | 'refused'; started?: any[]; agents?: any[] }
+  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean; failDecide?: boolean; failSend?: boolean; inboxDown?: boolean; inboxGate?: Promise<unknown>; inboxCalls?: number; clock?: any; decideFault?: 'lost-reply' | 'error-after-apply' | 'refused'; started?: any[]; agents?: any[] }
 
 export function fakeBridge(on: any, b: Bridge) {
   mock.env(on, { HOME: '/home/test' })
@@ -57,6 +57,7 @@ export function fakeBridge(on: any, b: Bridge) {
     const run = b.runs[parts[1] ?? '']
     if (!run || (run.owner && run.owner !== who)) return reply(404, { error: `no run ${parts[1]} in this session` })
     if (parts[2] === 'send') {
+      if (b.failSend) return reply(500, { error: 'bridge hiccup' })
       b.sent = [...(b.sent ?? []), { ...JSON.parse(e.init.body), session: who }]
       return reply(200, { ok: 'queued' })
     }

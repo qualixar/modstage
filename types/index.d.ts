@@ -98,6 +98,8 @@ declare module 'claude-code' {
       launchModel: string
       /** the thinking effort picked in the launcher ('' = the CLI's own default) */
       launchEffort: string
+      pressed: Record<string, 'busy' | 'done'>
+      answered: Record<string, { engine: string; title: string; choice: 'allow' | 'allow_session' | 'deny' }>
       /** transcript rows the person expanded, as `runId:seq` */
       openRows: string[]
       /** how many of the newest events the transcript draws */

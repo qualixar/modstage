@@ -25,11 +25,11 @@ for (const surface of ['desktop', 'terminal'] as const) {
       const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'modstage',
         props: {} as any, viewport: { columns: 120, rows } })
       expect(await ui.find({ text: /Needs you/ })).toBeTruthy()
-      expect(await ui.find({ key: 'stage' })).toBeTruthy()
+      expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { key: 'stage' })).toBeTruthy()
       expect(await ui.find({ key: 'composer' })).toBeTruthy()
       await ui.press({ key: 'allow:a00' })
       expect(b.decided.length).toBe(1)
-      expect(await ui.find({ key: 'stage' })).toBeTruthy()
+      expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { key: 'stage' })).toBeTruthy()
       await ui.unmount()
     })
   }
