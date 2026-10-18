@@ -24,7 +24,9 @@ for (const surface of ['desktop', 'terminal'] as const) {
       await $.tool.call({ tool: 'mcp__modstage__stage_start', engine: 'codex', prompt: 'x' } as any) // its poll fills the panel
       const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'modstage',
         props: {} as any, viewport: { columns: 120, rows } })
-      expect(await ui.find({ text: /Needs you/ })).toBeTruthy()
+      // the card's title: a vector row on the desktop (its alt text says it), text in the terminal
+      if (surface === 'desktop') expect((await ui.findAll({ type: 'Svg' })).some((x: any) => /Needs you/.test(x.props?.alt ?? ''))).toBe(true)
+      else expect(await ui.find({ text: /Needs you/ })).toBeTruthy()
       expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { key: 'stage' })).toBeTruthy()
       expect(await ui.find({ key: 'composer' })).toBeTruthy()
       await ui.press({ key: 'allow:a00' })

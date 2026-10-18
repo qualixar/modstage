@@ -5,10 +5,11 @@
 // Every text is fitted to the room it has, and a block that cannot fit beside another goes under it: nothing is drawn
 // outside its card or over a neighbour, from the narrowest pane (240 px) to the widest (1400 px).
 import type { RunView, StageProps } from './stage.tsx'
-import { ACCENT, BAD, OK, STATUS, WARN, colourOf } from './palette.ts'
+import { BAD, OK, STATUS, WARN, colourOf } from './palette.ts'
 import { autonomyLabel, elapsed, kTok, pct, shortPath, steerLabel, totals } from './format.ts'
 import { bar, fitText, pill, robot, robotState, svgDoc, text, textWidth, xml } from './vector.ts'
 import { engineDots } from './runs.ts'
+import { LOGO_PNG } from './logo.ts'
 
 const PAD = 16 // inner margin of a card
 const GAP = 10 // between blocks
@@ -28,13 +29,14 @@ function header(p: StageProps, W: number): Part {
   const status = pill(0, 0, label, live ? OK : p.age < 0 ? WARN : BAD, { dot: true, pulse: live, h: 24 })
   const s: string[] = []
   const top = 14
-  s.push(`<rect x="${PAD}" y="${top}" width="28" height="28" rx="9" fill="${ACCENT}"/>`)
-  s.push(`<path d="M${PAD + 14} ${top + 6.5}v15M${PAD + 7.5} ${top + 10.2}l13 7.6M${PAD + 7.5} ${top + 17.8}l13-7.6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>`)
-  s.push(text(PAD + 38, top + 20, 'ModStage', { size: 17, weight: 700 }))
-  const beside = W - PAD * 2 >= 38 + textWidth('ModStage', 17) + 16 + status.w
-  let y = top + 28
+  // ModStage's own logo, clipped to a rounded tile, then the wordmark
+  s.push(`<defs><clipPath id="msl"><rect x="${PAD}" y="${top}" width="34" height="34" rx="10"/></clipPath></defs>`)
+  s.push(`<image href="${LOGO_PNG}" x="${PAD}" y="${top}" width="34" height="34" clip-path="url(#msl)" preserveAspectRatio="xMidYMid slice"/>`)
+  s.push(text(PAD + 44, top + 23, 'ModStage', { size: 17, weight: 700 }))
+  const beside = W - PAD * 2 >= 44 + textWidth('ModStage', 17) + 16 + status.w
+  let y = top + 34
   if (beside) {
-    s.push(`<g transform="translate(${W - PAD - status.w} ${top + 2})">${status.svg}</g>`)
+    s.push(`<g transform="translate(${W - PAD - status.w} ${top + 5})">${status.svg}</g>`)
   } else {
     y += 12
     s.push(`<g transform="translate(${PAD} ${y - 4})">${status.svg}</g>`)
@@ -88,7 +90,7 @@ function tiles(p: StageProps, W: number): Part {
     const x = (i % perRow) * (tw + gap)
     const y = Math.floor(i / perRow) * (th + gap)
     s.push(`<rect class="pn" x="${x.toFixed(1)}" y="${y}" width="${tw.toFixed(1)}" height="${th}" rx="12"/>`)
-    s.push(`<circle cx="${(x + 15).toFixed(1)}" cy="${y + 18}" r="3.5" fill="${c.colour}"${c.live ? ' class="pulse"' : ''}${c.muted ? ' fill-opacity=".45"' : ''}/>`)
+    s.push(`<circle cx="${(x + 15).toFixed(1)}" cy="${y + 18}" r="3.5" fill="${c.colour}"${c.muted ? ' fill-opacity=".45"' : ''}/>`) // a lit dot, not a pulsing one: the tiles change with every event
     s.push(text(x + 26, y + 22, c.label, { cls: 't3', size: 10, weight: 600, spacing: 0.7 }))
     s.push(text(x + 14, y + 50, c.value, { cls: c.muted ? 't3' : 'tx', size: 24, weight: 700 }))
     // the small caption only where it fits beside the number (bold digits run wider than the estimate, so leave room)
@@ -100,13 +102,29 @@ function tiles(p: StageProps, W: number): Part {
   return { svg: s.join(''), h: rows * th + (rows - 1) * gap }
 }
 
-function runCard(p: StageProps, run: RunView, W: number): Part {
+/** Elapsed time in coarse steps (15 s, then 30 s), so the picture's source only changes when something worth showing
+ *  changed: a source that changed every second would reload the picture every second and restart every animation in it. */
+const coarse = (s: number): string => elapsed(s < 60 ? Math.floor(s / 15) * 15 : Math.floor(s / 30) * 30)
+
+/** The mark's tile: the agent's robot on a card of its own, as tall as the run's info card beside it. Its source depends on
+ *  the agent's colour, the robot's state and the card's height only, so it stays the same picture (and its animation keeps
+ *  running without a restart) while the numbers beside it change. */
+function robotTile(run: RunView, waiting: number, w: number, h: number): Part {
+  const colour = colourOf(run)
+  const mark = Math.min(56, w - 20)
+  const s = [
+    `<rect class="pn" x="0" y="0" width="${w}" height="${h}" rx="16"/>`,
+    `<rect x="0.75" y="0.75" width="${w - 1.5}" height="${h - 1.5}" rx="15.5" fill="none" stroke="${colour}" stroke-opacity=".38" stroke-width="1.5"/>`,
+    robot((w - mark) / 2, PAD, colour, robotState(run.status, waiting > 0), mark),
+  ]
+  return { svg: s.join(''), h }
+}
+
+function infoCard(p: StageProps, run: RunView, W: number): Part {
   const colour = colourOf(run)
   const working = run.status === 'running' || run.status === 'starting'
   const waiting = run.pending?.length ?? 0
-  const compact = W < 360
-  const mark = compact ? 40 : 56
-  const x0 = PAD + mark + (compact ? 10 : 14) // text column, after the mark
+  const x0 = PAD
   const xr = W - PAD
   const room = Math.max(60, xr - x0)
   const s: string[] = []
@@ -114,8 +132,8 @@ function runCard(p: StageProps, run: RunView, W: number): Part {
   let y = PAD + 14
 
   // Row 1: agent, model and effort, and the state pill: beside them when there is room, under them when there is not.
-  const stateText = `${run.status === 'idle' ? 'waiting for Claude' : run.status} · ${elapsed(run.elapsed_s)}`
-  const st = pill(0, 0, stateText, STATUS[run.status] ?? '#8A8FA3', { dot: true, pulse: working, h: 22 })
+  const stateText = `${run.status === 'idle' ? 'waiting for Claude' : run.status} · ${coarse(run.elapsed_s)}`
+  const st = pill(0, 0, fitText(stateText, 11, Math.max(40, room - 32)), STATUS[run.status] ?? '#8A8FA3', { dot: true, h: 22 }) // no pulse: this picture is redrawn as its numbers change, which would restart a pulse
   const name = run.name ?? run.engine
   const nameW = textWidth(name, 15) + 10
   const inline = room >= nameW + st.w + 16
@@ -150,8 +168,9 @@ function runCard(p: StageProps, run: RunView, W: number): Part {
   const au = autonomyLabel(run)
   put(au.text, au.warn ? BAD : OK)
   if (waiting) put(`${waiting} waiting on you`, WARN, true)
-  if (run.stuck) put(`quiet ${Math.round((run.quiet_s ?? 0) / 60)}m`, BAD)
-  else if (working && (run.quiet_s ?? 0) >= 45) put(`no output ${(run.quiet_s ?? 0) < 120 ? `${run.quiet_s}s` : `${Math.round((run.quiet_s ?? 0) / 60)}m`}`, '#8A8FA3')
+  const quietMin = Math.round((run.quiet_s ?? 0) / 60)
+  if (run.stuck) put(`quiet ${quietMin}m`, BAD)
+  else if (working && (run.quiet_s ?? 0) >= 45) put(`no output ${(run.quiet_s ?? 0) < 120 ? 'for a minute' : `${quietMin}m`}`, '#8A8FA3')
   y = rowTop + 20
 
   // Notes that need attention.
@@ -184,30 +203,62 @@ function runCard(p: StageProps, run: RunView, W: number): Part {
   body.push(text(x0, y, fitText(usage, 11, room), { cls: 't3', size: 11 }))
   y += PAD
 
-  const h = Math.max(y, PAD * 2 + mark)
+  const h = Math.max(y, PAD * 2 + 56)
   s.push(`<rect class="pn" x="0" y="0" width="${W}" height="${h}" rx="16"/>`)
   s.push(`<rect x="0.75" y="0.75" width="${W - 1.5}" height="${h - 1.5}" rx="15.5" fill="none" stroke="${colour}" stroke-opacity=".38" stroke-width="1.5"/>`)
-  s.push(robot(PAD, PAD, colour, robotState(run.status, waiting > 0), mark))
   s.push(...body)
   return { svg: s.join(''), h }
 }
 
-/** The whole head as one SVG document, with the text a screen reader gets. */
-export function headSvg(p: StageProps, W: number): { source: string; height: number; alt: string } {
+/** One picture of the head: its own source, size and the text a screen reader gets. */
+export type HeadPart = { key: string; source: string; width: number; height: number; alt: string; animated: boolean }
+/** The head's pictures in reading order; a group of two is drawn side by side (the mark's tile, then the run's card). */
+export type HeadLayout = Array<HeadPart | HeadPart[]>
+
+const RUN_GAP = 8
+
+/** The head as separate pictures. Splitting it matters: the robot's picture only changes with the agent, its state and the
+ *  card's height, so it keeps animating without a restart while the numbers in the pictures beside it change. */
+export function headParts(p: StageProps, W: number): HeadLayout {
   const run = p.runs.find(r => r.id === p.selected)
-  const parts: Part[] = [header(p, W)]
+  const t = totals(p.runs)
+  const part = (key: string, w: Part, width: number, alt: string, animated: boolean): HeadPart =>
+    ({ key, source: svgDoc(width, w.h, w.svg), width, height: w.h, alt, animated })
+  const out: HeadLayout = []
+  out.push(part('hd-top', header(p, W), W, `ModStage: ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}`, true))
   const note = notice(p, W)
-  if (note) parts.push(note)
-  parts.push(tiles(p, W))
-  if (run) parts.push(runCard(p, run, W))
+  if (note) out.push(part('hd-note', note, W, `Bridge problem: ${p.problem}`, false))
+  out.push(part('hd-tiles', tiles(p, W), W, `${t.working} working, ${t.waiting} waiting on you, ${t.finished} finished`, true))
+  if (run) {
+    const waiting = run.pending?.length ?? 0
+    const compact = W < 360
+    const rw = compact ? 60 : 76
+    const info = infoCard(p, run, W - rw - RUN_GAP)
+    out.push([
+      part('hd-mark', robotTile(run, waiting, rw, info.h), rw, `${run.name ?? run.engine} is ${run.status}`, true),
+      part('hd-run', info, W - rw - RUN_GAP, `${run.name ?? run.engine}, ${run.label}, ${run.status}`, true),
+    ])
+  }
+  return out
+}
+
+/** The whole head as one SVG document (the pictures stacked), for tests and for looking at it as one image. */
+export function headSvg(p: StageProps, W: number): { source: string; height: number; alt: string } {
+  const layout = headParts(p, W)
   const out: string[] = []
   let y = 0
-  parts.forEach(part => {
-    out.push(`<g transform="translate(0 ${y})">${part.svg}</g>`)
-    y += part.h + GAP
-  })
+  for (const item of layout) {
+    const row = Array.isArray(item) ? item : [item]
+    let x = 0
+    for (const part of row) {
+      out.push(`<g transform="translate(${x} ${y})">${part.source.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '')}</g>`)
+      x += part.width + RUN_GAP
+    }
+    y += Math.max(...row.map(r => r.height)) + GAP
+  }
   const height = Math.ceil(y - GAP)
   const t = totals(p.runs)
+  const run = p.runs.find(r => r.id === p.selected)
   const alt = `ModStage: ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}, ${t.working} working, ${t.waiting} waiting on you` +
     (run ? `. Selected: ${run.name ?? run.engine}, ${run.label}, ${run.status}.` : '.') + (p.problem ? ` Bridge problem: ${p.problem}.` : '')
   return { source: svgDoc(W, height, out.join('')), height, alt }

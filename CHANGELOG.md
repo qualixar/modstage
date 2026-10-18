@@ -2,6 +2,22 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.17 - 2026-10-19
+
+### Changed
+
+- **The panel's own logo, and robots in its style.** The header carries ModStage's real logo (the four robots from the README) instead of a mark invented for 0.0.16, and each agent's robot is redrawn in the logo's family: a flat, rounded head in the agent's colour with a navy outline, round eyes and an antenna ball. Working: the eyes look left and right and the ball beats. Waiting on you: wide eyes and an amber ball. Idle: a smile and a blink. Ended: eyes closed. Failed: crossed eyes and a red ball.
+- **The lower cards match the head.** Needs you, Start an agent and the message box open with the same vector title row as the head (an icon tile in the card's colour, the title, a dim line, a rule). Labels (agent, model, effort) sit at the top of their row instead of floating in the middle of wrapped chips. The run tabs are one line each: the agent's coloured mark, its name as a button (filled when selected) and the task in dim text, in place of the checkbox-like badge.
+- **No duplicate buttons on the desktop.** The engine's text box already carries its own Send or Start button there, so ModStage's second Start and Send buttons are gone on the desktop (the terminal keeps them). The long hint under each box is gone on the desktop too.
+
+### Fixed
+
+- **Animation runs, and keeps running.** The engine draws a plain vector picture as a still image; only a picture drawn in a frame (`isInteractive`) animates. The animated pictures of the head now ask for the frame. The head is also split into separate pictures, because a picture that changes restarts its animation: the robot's picture now depends only on the agent, its state and the card's height, so it keeps animating while the numbers beside it change; elapsed time moves in 15 s and 30 s steps instead of every second; and pulses live only in pictures that stay constant. Tests cover each of these.
+
+### Known limits
+
+- The engine's text box on the desktop is a single line with its own Send button: the `rows` setting (a taller box) is not applied there, as screenshots of 0.0.16 showed. Pasted text is kept whole. Attaching an image is not possible from a mod's text box.
+
 ## 0.0.16 - 2026-10-19
 
 ### Fixed

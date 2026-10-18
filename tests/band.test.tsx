@@ -45,8 +45,8 @@ for (const surface of ['desktop', 'terminal'] as const) {
       drawStage($$.ui.resolve(e), props as any, 0, {}, () => {}))
     const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'tabs',
       props: {} as any, viewport: { columns: 200, rows: 44 } })
-    expect(await ui.find({ text: / ○ / })).toBeTruthy()
-    expect(await ui.find({ text: / ✓ / })).toBeTruthy()
+    expect(await ui.find({ text: '○' })).toBeTruthy()
+    expect(await ui.find({ text: '✓' })).toBeTruthy()
     await ui.unmount()
   })
 }
