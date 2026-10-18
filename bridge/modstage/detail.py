@@ -45,8 +45,9 @@ def unified(path: str, old: str | None, new: str | None) -> str:
 
 
 # (old, new) argument names that agents use for a replacement edit, compared case-insensitively
-PAIRS = (("old_str", "new_str"), ("old_string", "new_string"), ("oldtext", "newtext"), ("targetcontent", "replacementcontent"),
-         ("search", "replace"), ("old", "new"), ("oldcontent", "newcontent"))
+PAIRS = (("old_str", "new_str"), ("old_string", "new_string"), ("oldtext", "newtext"), ("old_text", "new_text"),
+         ("targetcontent", "replacementcontent"), ("search", "replace"), ("find", "replace"), ("old", "new"),
+         ("oldcontent", "newcontent"), ("oldstring", "newstring"), ("before", "after"), ("target", "replacement"))
 # argument names that hold the whole new content of a file
 WHOLE = ("content", "file_text", "filetext", "text", "codecontent", "new_content", "newcontent", "contents")
 PATHS = ("path", "file_path", "filepath", "targetfile", "absolutepath", "file", "filename")

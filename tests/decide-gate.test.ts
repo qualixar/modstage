@@ -91,7 +91,7 @@ test('one message answers one approval', async ($, on) => {
   const b = fresh()
   b.runs.r2 = { ...runWith([{ ...ask('a2', 'run `curl b`'), asked_at: Date.now() / 1000 - 5 }]), id: 'r2' }
   fakeBridge(on, b)
-  await userSays($, 'yes allow it')
+  await userSays($, 'yes allow the pip install')
   await decide($, { run_id: 'r1', choice: 'allow' })
   const res = await decide($, { run_id: 'r2', choice: 'allow' })
   expect(b.decided.map(d => d.approval_id)).toEqual(['a1'])
@@ -103,20 +103,56 @@ test('two decisions at once on one message: exactly one goes through', async ($,
   const b = fresh()
   b.runs.r2 = { ...runWith([{ ...ask('a2', 'run `curl b`'), asked_at: Date.now() / 1000 - 5 }]), id: 'r2' }
   fakeBridge(on, b)
-  await userSays($, 'yes allow it')
+  await userSays($, 'yes allow the pip install')
   const [one, two] = await Promise.all([decide($, { run_id: 'r1', choice: 'allow' }), decide($, { run_id: 'r2', choice: 'allow' })])
   expect(b.decided).toHaveLength(1)
   expect([out(one), out(two)].filter(t => t.includes('already used'))).toHaveLength(1)
 })
 
-test('a failed send gives the same message back; a retry on it succeeds', async ($, on) => {
+test('a send the bridge refused gives the same message back; a retry on it succeeds', async ($, on) => {
+  const b = fresh()
+  fakeBridge(on, b)
+  await userSays($, 'allow it')
+  b.decideFault = 'refused'
+  await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(b.decided).toEqual([])
+  b.decideFault = undefined
+  await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(b.decided.map(d => d.choice)).toEqual(['allow'])
+})
+
+// The reviewer's case (PR 309, 18 Oct 2026): the bridge applies the first approval but its reply is lost. The message
+// must stay spent, or the same "allow it" approves a second, different action.
+for (const fault of ['lost-reply', 'error-after-apply'] as const) {
+  test(`an applied decision whose reply is lost (${fault}) does not free the message for a second approval`, async ($, on) => {
+    const b = fresh()
+    b.runs.r2 = { ...runWith([{ ...ask('a2', 'run `curl b`'), asked_at: Date.now() / 1000 - 5 }]), id: 'r2' }
+    fakeBridge(on, b)
+    await userSays($, 'yes allow the pip install')
+    b.decideFault = fault
+    const first = await decide($, { run_id: 'r1', choice: 'allow' })
+    expect(b.decided.map(d => d.approval_id)).toEqual(['a1'])        // it WAS applied
+    expect(out(first)).toContain('could not confirm')                 // and Claude is told the truth about not knowing
+    expect(out(first).length).toBeLessThan(330)
+    expect(out(first)).toContain('NEW message')   // the way forward survives the error handler's 300-character cut
+    b.decideFault = undefined
+    const second = await decide($, { run_id: 'r2', choice: 'allow' })
+    expect(b.decided.map(d => d.approval_id)).toEqual(['a1'])        // the other approval is NOT answered
+    expect(out(second)).toContain('already used')
+  })
+}
+
+test('an unknown outcome (a 5xx that applied nothing) also keeps the message spent; a new message answers', async ($, on) => {
   const b = fresh()
   fakeBridge(on, b)
   await userSays($, 'allow it')
   b.failDecide = true
-  await decide($, { run_id: 'r1', choice: 'allow' })
-  expect(b.decided).toEqual([])
+  const first = await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(out(first)).toContain('could not confirm')
   b.failDecide = false
+  expect(out(await decide($, { run_id: 'r1', choice: 'allow' }))).toContain('already used')   // the same message: refused
+  expect(b.decided).toEqual([])
+  await userSays($, 'allow it again')                                                          // a new message: goes through
   await decide($, { run_id: 'r1', choice: 'allow' })
   expect(b.decided.map(d => d.choice)).toEqual(['allow'])
 })

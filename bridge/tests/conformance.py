@@ -23,9 +23,9 @@ from modstage import registry, server
 NATIVE_STEER = {"codex", "muse"}
 QUEUE_STEER = {"grok", "antigravity", "kimi", "qwen", "opencode"}
 
-CONTROLS = ["start", "model", "stream", "long_turn", "tool_detail", "edit_diff", "approval", "steer", "queued", "interrupt", "resume", "close", "images"]
+CONTROLS = ["start", "model", "effort", "stream", "long_turn", "tool_detail", "edit_diff", "approval", "steer", "queued", "interrupt", "resume", "close", "images"]
 TITLES = {
-    "start": "1 Start", "model": "1b Pick a model", "stream": "2 Stream text + tools", "tool_detail": "2c Tool input and output in full",
+    "start": "1 Start", "model": "1b Pick a model", "effort": "1c Pick a thinking effort", "stream": "2 Stream text + tools", "tool_detail": "2c Tool input and output in full",
     "edit_diff": "2d Edits show what changed", "long_turn": "2b Long turn looks alive",
     "approval": "3 Approval round trip", "steer": "4 Steer mid-turn", "queued": "4b Queued-message feedback",
     "interrupt": "5 Interrupt", "resume": "6 Resume after exit", "close": "7 Close", "images": "8 Images",
@@ -72,6 +72,50 @@ def check_model(t, agent):
             t.assertTrue("m-pick" in h.argv_used() or any("m-pick" in (p.get("modelId"), p.get("value")) for p in sent_by_rpc),
                          f"model not passed: argv {h.argv_used()}")
     _with(agent, body, model="m-pick")
+
+
+def check_effort(t, agent):
+    """A thinking effort asked for at start reaches the CLI in its own way, and the run says what it applied."""
+    def body(h):
+        if agent == "antigravity":
+            with t.assertRaises(ValueError) as caught:
+                registry.check_effort("antigravity", None, "high")
+            t.assertIn("model", str(caught.exception))   # says where the effort lives instead
+            return
+        h.started()
+        if agent == "codex":
+            t.assertEqual(h.rpc.calls[[m for m, _ in h.rpc.calls].index("thread/start")][1]["config"]["model_reasoning_effort"], "high")
+            t.assertEqual(h.run.effort, "high")
+        elif agent == "muse":
+            argv = h.argv_used()
+            t.assertTrue(any(a.startswith("model_reasoning_efforts=") and '"high"' in a for a in argv), argv)
+        elif agent == "grok":
+            argv = h.argv_used()
+            t.assertEqual(argv[argv.index("--effort") + 1], "high")
+        else:   # kimi, qwen, opencode: set through ACP when the CLI advertises a thought-level setting
+            sets = [p for m, p in h.rpc.calls if m == "session/set_config_option" and p.get("value") == "high"]
+            t.assertTrue(sets, "the advertised effort setting was not set")
+    if agent == "opencode":
+        # its ACP session advertises no effort setting (live, 18 Oct 2026): the run must say so and use its default
+        def no_setting(h):
+            h.started()
+            t.assertEqual(h.run.effort, "")
+            t.assertTrue(any(e["kind"] == "warning" and "advertises no thinking-effort setting" in e["text"] for e in h.run.events))
+        _with(agent, no_setting, effort="high")
+    elif agent in ("kimi", "qwen"):
+        from fakes import REPLIES
+        advertised = {**REPLIES, "session/new": {"sessionId": "acp1", "configOptions": [
+            {"id": "model", "category": "model", "type": "select", "currentValue": "default-m"},
+            {"id": "thought", "category": "thought_level", "type": "select", "currentValue": "medium"}]}}
+        import fakes
+        saved = fakes.REPLIES
+        fakes.REPLIES = advertised
+        try:
+            _with(agent, body, effort="high")
+        finally:
+            fakes.REPLIES = saved
+    else:
+        _with(agent, body, effort="high", model="muse-test" if agent == "muse" else None)
 
 
 def check_stream(t, agent):
@@ -268,6 +312,8 @@ DEGRADED = {
                                   "stays fresh, but cannot show what it is thinking",
     ("antigravity", "queued"): "'Interrupt and send now' restarts agy (it has no cancel) with a recap plus the queued message",
     ("antigravity", "interrupt"): "agy has no cancel: ModStage stops the process; the next message restarts it with a recap",
+    **{(a, "effort"): "set through ACP when the CLI advertises a thought-level setting; it warns and runs on its own "
+                      "default when it does not. Not yet confirmed which of these CLIs advertise one" for a in ("kimi", "qwen")},
     ("codex", "edit_diff"): "each change's `diff` field from the app-server's fileChange item; the field name is the "
                             "protocol's as documented, not yet confirmed against the real CLI (run scripts/smoke_real_cli.py)",
     **{(a, "edit_diff"): "the diff comes from the ACP `diff` block the CLI sends (old and new text); not yet confirmed "
@@ -285,9 +331,13 @@ NA = {
     **{(a, "queued"): "steers natively; nothing queues" for a in NATIVE_STEER},
     ("grok", "images"): "Grok's ACP initialize says promptCapabilities.image = false: ModStage refuses with that reason",
     ("antigravity", "images"): "agy's print mode takes text only (no verified image input): ModStage refuses with a reason",
+    ("opencode", "effort"): "`opencode acp` advertises only `model` and `mode` (checked live): there is no effort setting to apply. "
+                            "ModStage offers none; an effort asked for anyway is refused. Its models do list `variants` for `opencode run`",
+    ("antigravity", "effort"): "agy carries its effort in the model name (Gemini 3.8 Flash High, Medium, Low): pick that model; "
+                               "ModStage refuses an effort for it and says so",
 }
 # n/a cells whose check asserts the honest label (the rest have nothing to run)
-NA_CHECKED = {("antigravity", "approval"), ("grok", "images"), ("antigravity", "images")}
+NA_CHECKED = {("antigravity", "approval"), ("grok", "images"), ("antigravity", "images"), ("antigravity", "effort"), ("opencode", "effort")}
 
 GAPS = {
 }

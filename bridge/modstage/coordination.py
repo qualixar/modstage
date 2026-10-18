@@ -35,6 +35,10 @@ def mcp_server(run) -> dict:
     return {"command": sys.executable, "args": safe_python("modstage.mcp_stdio"), "env": {**agent_env(run), "PYTHONPATH": BRIDGE_DIR, "PYTHONSAFEPATH": "1"}}
 
 
+# agents whose shell runs in a sandbox that blocks the loopback bridge: they must use the board tools
+SANDBOXED_SHELL = {"codex"}
+
+
 def brief(run) -> str:
     from .claims import BOARD
     lines = [
@@ -47,12 +51,17 @@ def brief(run) -> str:
     others = BOARD.owners_brief(run)
     if others:
         lines.append("Other runs have claimed these files; do not edit them:\n" + others)
+    tools = ("Coordinate through the workspace board with your stage_join, stage_claim, stage_release, stage_send and "
+             "stage_inbox tools: call stage_join first, stage_claim files before editing them, stage_release them when done, "
+             "and read stage_inbox between steps. ")
+    if run.engine in SANDBOXED_SHELL:
+        # Their shell sandbox cannot reach the local bridge (the CLI fails with "Operation not permitted"); only the tools can.
+        shell = "Do not use the shell for this: your shell cannot reach the board, only those tools can. "
+    else:
+        shell = (f"Without those tools, use the shell: {CLI} claim <paths> | release <path|all> | send <run|all> <text> | "
+                 "inbox | status. ")
     lines += [
-        "Coordinate through the workspace board: if you have tools named stage_join, stage_claim, stage_release, "
-        "stage_send and stage_inbox, call stage_join first, stage_claim files before editing them, "
-        "stage_release them when done, and read stage_inbox between steps. "
-        f"Without those tools, use the shell: {CLI} claim <paths> | release <path|all> | send <run|all> <text> | inbox | status. "
-        "The board is mirrored at .modstage/STATE.md (read it, never edit it).",
+        tools + shell + "The board is mirrored at .modstage/STATE.md (read it, never edit it).",
         "Do not touch git branches, worktrees, or files outside the task.",
         "End with a short summary: what you changed, what you verified, what is left.",
     ]

@@ -5,10 +5,11 @@ import { mock } from 'claude-code/testing'
 // that session's runs and answers 404 for another session's run. Recorded calls carry the caller as `session`.
 
 export type Bridge = { runs: Record<string, any>; decided: any[]; session: string; toasts?: string[]; sent?: any[]; waits?: string[]
-  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean; failDecide?: boolean }
+  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean; failDecide?: boolean; inboxDown?: boolean; inboxGate?: Promise<unknown>; inboxCalls?: number; clock?: any; decideFault?: 'lost-reply' | 'error-after-apply' | 'refused'; started?: any[]; agents?: any[] }
 
 export function fakeBridge(on: any, b: Bridge) {
   mock.env(on, { HOME: '/home/test' })
+  b.clock = mock.clock(on)   // waits are held until a test moves the clock: nothing times out by itself
   on('prompt.submit', (_$: any, e: any) => ({ text: e.text })) // stands for the engine beneath the mod
   on('session.id', () => ({ value: b.session }))
   on('session.cwd', () => ({ value: '/home/test/demo' }))
@@ -17,21 +18,32 @@ export function fakeBridge(on: any, b: Bridge) {
     b.toasts = [...(b.toasts ?? []), String(e.text)]
     return { value: undefined }
   })
-  on('http.fetch', ($: any, e: any) => {
+  on('http.fetch', async ($: any, e: any) => {
+    if (String(e.url).includes('/inbox')) {
+      b.inboxCalls = (b.inboxCalls ?? 0) + 1
+      if (b.inboxGate) { const g = b.inboxGate; b.inboxGate = undefined; await g }   // a test holds this read open
+    }
     const url = new URL(e.url)
     const parts = url.pathname.split('/').filter(Boolean)
     const reply = (status: number, body: any) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
     const key = String(e.init?.headers?.['X-ModStage-Session'] ?? '')
     const who = key.startsWith('key-') ? key.slice(4) : ''
+    if (parts[0] === 'agents') return reply(200, { agents: b.agents ?? [] })
     if (parts[0] === 'sessions') {
       const asked = JSON.parse(e.init?.body ?? '{}').session
       return reply(200, { key: `key-${asked}`, peer: `claude-${String(asked).slice(0, 8)}` })
     }
     if (['runs', 'inbox', 'claude'].includes(parts[0] ?? '') && !who) return reply(401, { error: 'no session', code: 'session' })
     const own = Object.values(b.runs).filter((r: any) => !r.owner || r.owner === who)
-    if (parts[0] === 'runs' && parts.length === 1 && e.init?.method === 'POST') return reply(200, { id: 'new00001', autonomy: 'ask' })
+    if (parts[0] === 'runs' && parts.length === 1 && e.init?.method === 'POST') {
+      b.started = [...(b.started ?? []), JSON.parse(e.init.body)]
+      return reply(200, { id: 'new00001', autonomy: 'ask' })
+    }
     if (parts[0] === 'runs' && parts.length === 1) return reply(200, { runs: own })
-    if (parts[0] === 'inbox') return reply(200, { pending: own.flatMap((r: any) => r.pending) })
+    if (parts[0] === 'inbox') {
+      if (b.inboxDown) throw new Error('fetch failed: ECONNREFUSED')
+      return reply(200, { pending: own.flatMap((r: any) => r.pending) })
+    }
     if (parts[0] === 'claude') {
       if (b.down) throw new Error('fetch failed: ECONNREFUSED')
       const body = JSON.parse(e.init?.body ?? '{}')
@@ -53,10 +65,14 @@ export function fakeBridge(on: any, b: Bridge) {
       return reply(200, { ...run, new_events: [], partial: '', timed_out: false })
     }
     if (parts[2] === 'decide') {
-      if (b.failDecide) return reply(500, { error: 'bridge hiccup' })
+      if (b.failDecide) return reply(500, { error: 'bridge hiccup' })   // a 5xx: the outcome is unknown to the caller
       const body = JSON.parse(e.init.body)
+      if (b.decideFault === 'refused') return reply(404, { error: 'no such pending approval' })   // the bridge looked and said no
       b.decided.push({ ...body, session: who })
       run.pending = run.pending.filter((p: any) => p.id !== body.approval_id)
+      // the decision WAS applied, but the caller never learns it
+      if (b.decideFault === 'lost-reply') throw new Error('fetch failed: ECONNRESET')
+      if (b.decideFault === 'error-after-apply') return reply(500, { error: 'bridge hiccup' })
       return reply(200, { ok: true })
     }
     const after = Number(url.searchParams.get('after') ?? 0)

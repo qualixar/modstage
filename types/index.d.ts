@@ -50,6 +50,8 @@ export type RunSummary = {
   /** messages the CLI holds until the running turn ends */
   queued?: number
   waiting_on_user?: boolean
+  /** the thinking effort the run uses ('' = the CLI's own default) */
+  effort?: string
 }
 
 export type RunEvent = { seq: number; ts: number; kind: string; text: string; detail?: string }
@@ -67,7 +69,11 @@ export type StageAgent = {
   install?: string
   note: string
   /** models the CLI listed (capped); empty when it has no list command */
-  models?: Array<{ id: string; label: string; variant?: string }>
+  models?: Array<{ id: string; label: string; variant?: string; efforts?: string[]; default_effort?: string }>
+  /** thinking-effort levels that apply to every model of this agent (Grok), when its models list none */
+  efforts?: string[]
+  /** the effort the CLI uses when none is asked for, from its own config */
+  default_effort?: string
   /** the model it uses when none is picked, where known */
   default_model?: string
   /** whether a model can be passed at start */
@@ -90,6 +96,8 @@ declare module 'claude-code' {
       claudeFeeds: Record<string, RunEvent[]>
       launchAgent: string
       launchModel: string
+      /** the thinking effort picked in the launcher ('' = the CLI's own default) */
+      launchEffort: string
       /** transcript rows the person expanded, as `runId:seq` */
       openRows: string[]
       /** how many of the newest events the transcript draws */
@@ -97,7 +105,7 @@ declare module 'claude-code' {
       /** whether the pane scrolls to new output (true until the person scrolls up) */
       following: boolean
       /** the user's last own prompt: seconds since the epoch, the decision it states, and whether one decide used it (never its text) */
-      userPrompt: { at: number; decision: string; used: boolean }
+      userPrompt: { at: number; decision: string; used: boolean; approval: string }
       /** this session's capability at the bridge (held in host memory, never on disk) and its board peer id */
       sessionKey: { key: string; peer: string }
       /** this session's id from the classic hook envelope: the fallback when $.session.id() gives nothing */

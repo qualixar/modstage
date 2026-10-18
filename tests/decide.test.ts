@@ -7,8 +7,9 @@ import type { Bridge } from './fake-bridge.ts'
 
 const decide = async ($: any, input: any) => {
   // the user has spoken since the approval, stating the decision Claude passes on
-  await userSays($, input.choice === 'deny' ? 'deny it' : input.choice === 'allow_session' ? 'allow it for the rest of this run' : 'ok')
-  return $.tool.call({ tool: 'mcp__modstage__stage_decide', ...input } as any)
+  await userSays($, input.say ?? (input.choice === 'deny' ? 'deny it' : input.choice === 'allow_session' ? 'allow it for the rest of this run' : 'allow it'))
+  const { say, ...rest } = input
+  return $.tool.call({ tool: 'mcp__modstage__stage_decide', ...rest } as any)
 }
 const out = (res: any) => String(res?.result ?? res?.text ?? res?.deny ?? '')
 
@@ -34,7 +35,7 @@ test('several waiting and no id: lists them with ids and decides nothing', async
 test('several waiting with an id: decides exactly that one', async ($, on) => {
   const b: Bridge = { runs: { r1: runWith([ask('a1', 'run `curl a`'), ask('a2', 'change api.py')]) }, decided: [], session: 'sess-A' }
   fakeBridge(on, b)
-  await decide($, { run_id: 'r1', approval_id: 'a2', choice: 'allow_session' })
+  await decide($, { run_id: 'r1', approval_id: 'a2', choice: 'allow_session', say: 'allow the api.py change for the rest of this run' })
   expect(b.decided.map(d => [d.approval_id, d.choice])).toEqual([['a2', 'allow_session']])
 })
 

@@ -44,7 +44,7 @@ export type RunView = {
   id: string; engine: string; model: string | null; label: string; cwd: string
   status: string; activity: string; elapsed_s: number; usage: Usage; error: string | null
   name?: string; color?: string | null; steer?: string; autonomy?: string; quiet_s?: number; stuck?: boolean
-  approval_note?: string; pending?: unknown[]; blocked?: string
+  approval_note?: string; pending?: unknown[]; blocked?: string; effort?: string
 }
 export type EventView = { seq: number; kind: string; text: string; detail?: string }
 export type StageProps = {
@@ -206,7 +206,7 @@ function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
         <Box flexDirection="row" justifyContent="space-between">
           <Text>
             <Text color={colour} bold>{run.engine}</Text>
-            <Text dimColor> {run.model ?? ''} · {run.id}</Text>
+            <Text dimColor> {run.model ?? ''}{run.effort ? ` · ${run.effort}` : ''} · {run.id}</Text>
           </Text>
           <Text color={STATUS[run.status] ?? '#A6ADC8'}>{running ? spin : '●'} {run.status} · {elapsed(run.elapsed_s)}</Text>
         </Box>
@@ -227,7 +227,7 @@ function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
           <Text dimColor> {c == null ? '' : `${c}% · `}{kTok(run.usage.context_used)}/{kTok(run.usage.context_window)}</Text>
         </Text>
         <Text dimColor wrap="truncate-end">
-          in {kTok(run.usage.input)} ({kTok(run.usage.cached)} cached) · out {kTok(run.usage.output)}
+          in {kTok(run.usage.input)} ({kTok(run.usage.cached)} cached) · out {kTok(run.usage.output)}{run.usage.reasoning ? ` (${kTok(run.usage.reasoning)} thinking)` : ''}
           {run.usage.cost_usd != null ? `  ·  ≈$${run.usage.cost_usd.toFixed(2)} at API price` : ''}
         </Text>
       </Box>
