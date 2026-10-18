@@ -90,15 +90,11 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
             variant={a.id === picked ? 'primary' : undefined}
             onPress={() => act({ type: 'pickAgent', engine: a.id === picked ? '' : a.id })} />
         ))}
+        {missing.map(a => (
+          <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '○ '}${a.name} (not installed)`}
+            onPress={() => act({ type: 'pickAgent', engine: a.id === picked ? '' : a.id })} />
+        ))}
       </Box>
-      {missing.length ? (
-        <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap">
-          {missing.map(a => (
-            <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '○ '}${a.name} (not installed)`}
-              onPress={() => act({ type: 'pickAgent', engine: a.id === picked ? '' : a.id })} />
-          ))}
-        </Box>
-      ) : null}
       {absent ? (
         <Box key={`missing:${absent.id}`} flexDirection="column">
           <Text wrap="wrap"><Text color={WARN} bold>{absent.name} is not installed on this machine.</Text></Text>

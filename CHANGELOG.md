@@ -2,6 +2,12 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## Unreleased
+
+### Fixed
+
+- **The start panel no longer stacks the "not installed" buttons flush under the installed ones.** Installed and missing agents now share one wrapping row, so the gaps between buttons are the same everywhere.
+
 ## 0.0.10 - 2026-10-18
 
 ### Fixed
