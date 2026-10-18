@@ -5,7 +5,7 @@ import { mock } from 'claude-code/testing'
 // that session's runs and answers 404 for another session's run. Recorded calls carry the caller as `session`.
 
 export type Bridge = { runs: Record<string, any>; decided: any[]; session: string; toasts?: string[]; sent?: any[]; waits?: string[]
-  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean }
+  claude?: any[]; held?: any[]; mail?: any[]; down?: boolean; failDecide?: boolean }
 
 export function fakeBridge(on: any, b: Bridge) {
   mock.env(on, { HOME: '/home/test' })
@@ -53,6 +53,7 @@ export function fakeBridge(on: any, b: Bridge) {
       return reply(200, { ...run, new_events: [], partial: '', timed_out: false })
     }
     if (parts[2] === 'decide') {
+      if (b.failDecide) return reply(500, { error: 'bridge hiccup' })
       const body = JSON.parse(e.init.body)
       b.decided.push({ ...body, session: who })
       run.pending = run.pending.filter((p: any) => p.id !== body.approval_id)

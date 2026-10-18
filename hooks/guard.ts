@@ -62,13 +62,35 @@ function words(segment: string): string[] {
   return out
 }
 
+/** Split on ; & | and newlines, but not inside quotes: `grep -E "a|b"` is one command, not two. */
+function splitOutsideQuotes(command: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let quote: string | null = null
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!
+    if (quote) {
+      cur += ch
+      if (ch === '\\' && quote === '"' && i + 1 < command.length) cur += command[++i]
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '\\' && i + 1 < command.length) { cur += ch + command[++i]; continue }
+    if (ch === '"' || ch === "'") { quote = ch; cur += ch; continue }
+    if (';&|\n'.includes(ch)) { out.push(cur); cur = ''; continue }
+    cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
 /** Command segments: split on ; && || | & newlines, and the insides of $( ) and backticks. */
 function segments(command: string): string[] {
   const inner: string[] = []
   const flat = command
     .replace(/\$\(([^()]*)\)/g, (_m, body) => { inner.push(body); return ' ' })
     .replace(/`([^`]*)`/g, (_m, body) => { inner.push(body); return ' ' })
-  return [...flat.split(/\|\||&&|[;|&\n]/), ...inner.flatMap(segments)]
+  return [...splitOutsideQuotes(flat), ...inner.flatMap(segments)]
 }
 
 const base = (word: string) => word.replace(/^.*\//, '')
@@ -83,6 +105,7 @@ function launchIn(argv: string[], depth: number): string {
     while (i < argv.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[i]!)) i++
     const w = base(argv[i] ?? '')
     if (!w) return ''
+    if (w === 'command' && ['-v', '-V'].includes(argv[i + 1] ?? '')) return ''  // a lookup, not a launch
     if (WRAPPERS.has(w)) { i++; continue }
     if (w === 'env') { i++; skipFlags(new Set(['-u', '-C', '-S'])); continue }
     if (w === 'sudo') { i++; skipFlags(new Set(['-u', '-g', '-C', '-D', '-p', '-h', '-U'])); continue }

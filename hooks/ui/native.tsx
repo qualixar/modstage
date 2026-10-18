@@ -74,6 +74,7 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
   const ready = agents.filter(a => a.installed)
   const missing = agents.filter(a => !a.installed)
   const agent = ready.find(a => a.id === picked)
+  const absent = missing.find(a => a.id === picked)
   if (!agents.length) {
     return <Text key="launcher" dimColor>Looking for agent CLIs on this machine…</Text>
   }
@@ -91,7 +92,22 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
         ))}
       </Box>
       {missing.length ? (
-        <Text dimColor wrap="truncate-end">Not installed: {missing.map(a => a.name).join(' · ')}</Text>
+        <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap">
+          {missing.map(a => (
+            <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '○ '}${a.name} (not installed)`}
+              onPress={() => act({ type: 'pickAgent', engine: a.id === picked ? '' : a.id })} />
+          ))}
+        </Box>
+      ) : null}
+      {absent ? (
+        <Box key={`missing:${absent.id}`} flexDirection="column">
+          <Text wrap="wrap"><Text color={WARN} bold>{absent.name} is not installed on this machine.</Text></Text>
+          <Text wrap="wrap">{installLine(absent)}</Text>
+          <Text dimColor wrap="wrap">Then reopen this panel, or ask Claude to run stage_agents to check.</Text>
+          <Box flexDirection="row">
+            <Button key="missing-close" label="Close" onPress={() => act({ type: 'pickAgent', engine: '' })} />
+          </Box>
+        </Box>
       ) : null}
       {agent ? (
         <Box key={`task:${agent.id}`} flexDirection="column">
@@ -210,6 +226,12 @@ export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a
   )
 }
 
+/** The line that tells a person how to install a missing agent's CLI. */
+export function installLine(a: StageAgent): string {
+  const how = a.install ?? ''
+  return how ? `Install it: ${how}` : `Install it and make sure \`${a.command.split(' ')[0]}\` is on your PATH.`
+}
+
 /** Shown when there are no runs: what is plugged in and ready. */
 export function drawSetup(el: any, agents: StageAgent[]) {
   const { Box, Text } = el
@@ -220,7 +242,7 @@ export function drawSetup(el: any, agents: StageAgent[]) {
       {agents.map(a => (
         <Text key={`ag:${a.id}`} wrap="truncate-end">
           <Text color={a.installed ? (a.color ?? '#CDD6F4') : '#585B70'}>{a.installed ? '●' : '○'} {a.name.padEnd(12)}</Text>
-          <Text dimColor> {a.installed ? (a.version || 'installed') : `not installed (${a.command.split(' ')[0]})`}</Text>
+          <Text dimColor> {a.installed ? (a.version || 'installed') : `not installed. ${installLine(a)}`}</Text>
           <Text dimColor>  ·  {a.steer === 'native' ? 'steerable' : 'queued messages'}</Text>
           {a.note ? <Text color={WARN}>  ·  {a.note}</Text> : null}
         </Text>

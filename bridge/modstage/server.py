@@ -63,7 +63,7 @@ def start_run(body: dict, owner: str) -> Run:
         raise ValueError(f"unknown agent '{engine}'. Plugged in: {', '.join(agents)}")
     spec = agents[engine]
     if not shutil.which(spec["command"][0]):
-        raise ValueError(f"{spec.get('name', engine)} is not installed ({spec['command'][0]} not found on PATH)")
+        raise ValueError(registry.not_installed(spec))
     prompt = (body.get("prompt") or "").strip()
     if not prompt:
         raise ValueError("prompt is empty")

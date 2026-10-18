@@ -98,3 +98,25 @@ test('one message answers one approval', async ($, on) => {
   expect(out(res)).toContain('already used')
 })
 
+
+test('two decisions at once on one message: exactly one goes through', async ($, on) => {
+  const b = fresh()
+  b.runs.r2 = { ...runWith([{ ...ask('a2', 'run `curl b`'), asked_at: Date.now() / 1000 - 5 }]), id: 'r2' }
+  fakeBridge(on, b)
+  await userSays($, 'yes allow it')
+  const [one, two] = await Promise.all([decide($, { run_id: 'r1', choice: 'allow' }), decide($, { run_id: 'r2', choice: 'allow' })])
+  expect(b.decided).toHaveLength(1)
+  expect([out(one), out(two)].filter(t => t.includes('already used'))).toHaveLength(1)
+})
+
+test('a failed send gives the same message back; a retry on it succeeds', async ($, on) => {
+  const b = fresh()
+  fakeBridge(on, b)
+  await userSays($, 'allow it')
+  b.failDecide = true
+  await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(b.decided).toEqual([])
+  b.failDecide = false
+  await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(b.decided.map(d => d.choice)).toEqual(['allow'])
+})

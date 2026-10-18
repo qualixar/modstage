@@ -4,7 +4,7 @@ const AGENTS = [
   { id: 'codex', name: 'Codex', installed: true, version: '1', steer: 'native', color: '#7AA2F7', command: 'codex', note: '',
     takes_model: true, default_model: 'gpt-6.1-sol', models: [{ id: 'gpt-6.1-sol', label: 'GPT-6.1-Sol' }, { id: 'gpt-6-luna', label: 'GPT-6-Luna' }] },
   { id: 'grok', name: 'Grok', installed: true, version: '1', steer: 'queue', color: '#E0AF68', command: 'grok', note: '' },
-  { id: 'kimi', name: 'Kimi', installed: false, version: '', steer: 'queue', color: '#9CA3AF', command: 'kimi', note: '' },
+  { id: 'kimi', name: 'Kimi', installed: false, version: '', steer: 'queue', color: '#9CA3AF', command: 'kimi', note: '', install: 'see https://github.com/MoonshotAI/kimi-cli' },
 ]
 
 // Stand in for the bridge: the test's hooks sit beneath the plugin, so they answer its fetches.
@@ -35,14 +35,16 @@ for (const surface of ['desktop', 'terminal'] as const) {
     mock.env(on, { HOME: '/home/test' })
     const posted: any[] = []
     fakeBridge(on, posted)
-    await $.tool.call({ tool: 'mcp__modstage__stage_agents' } as any)
+    const listed: any = await $.tool.call({ tool: 'mcp__modstage__stage_agents' } as any)
+    expect(String(listed.result ?? listed.text)).toContain('kimi · Kimi · NOT installed. Install it: see https://github.com/MoonshotAI/kimi-cli')
     const ui: any = await $.ui.mount({
       plugin: 'modstage', surface, component: 'Pane', requestId: 'modstage',
       props: {} as any, viewport: { columns: 110, rows: 40 },
     })
     expect(await ui.find({ key: 'pick:codex' })).toBeDefined()
     expect(await ui.find({ key: 'pick:grok' })).toBeDefined()
-    expect(await ui.find({ key: 'pick:kimi' })).toBeUndefined()
+    expect(await ui.find({ key: 'pick:kimi' })).toBeDefined()  // a missing CLI is a button too, so a click is never dead
+    expect(await ui.find({ key: 'missing:kimi' })).toBeUndefined()
     expect(await ui.find({ key: 'launch-task:codex' })).toBeUndefined()
 
     await ui.press({ key: 'pick:codex' })
@@ -61,6 +63,15 @@ for (const surface of ['desktop', 'terminal'] as const) {
     expect(await ui.find({ key: 'launch-task:grok' })).toBeDefined()
     await ui.press({ key: 'pick:grok' })
     expect(await ui.find({ key: 'launch-task:grok' })).toBeUndefined()
+
+    // A CLI that is not installed answers the click with how to install it, and offers no task box.
+    await ui.press({ key: 'pick:kimi' })
+    expect(await ui.find({ key: 'missing:kimi' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Kimi is not installed/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Install it: see https:\/\/github.com\/MoonshotAI\/kimi-cli/ })).toBeDefined()
+    expect(await ui.find({ key: 'launch-task:kimi' })).toBeUndefined()
+    await ui.press({ key: 'missing-close' })
+    expect(await ui.find({ key: 'missing:kimi' })).toBeUndefined()
     await ui.unmount()
   })
 
