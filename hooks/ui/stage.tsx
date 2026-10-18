@@ -1,7 +1,8 @@
 import { drawTranscript, FIRST_PAGE } from './transcript.tsx'
 import { ACCENT, ENGINE, STATUS, colourOf } from './palette.ts'
 import { autonomyLabel, elapsed, kTok, pct, shortPath, steerLabel, totals } from './format.ts'
-import { headSvg, widthFor } from './head.ts'
+import { headParts, widthFor } from './head.ts'
+import type { HeadPart } from './head.ts'
 import { engineDots, statusGlyph } from './runs.ts'
 
 // ModStage view: one drawing function used two ways.
@@ -124,25 +125,24 @@ function drawHeader(el: any, p: StageProps, tick: number) {
   )
 }
 
-/** Tabs: one per run, the engine's colour, a spinner while it works. The selected tab is filled. */
+/** Tabs: one per run. Each shows the agent's own colour in its mark (a spinner while it works, ✓ waiting for Claude, ✗ failed,
+ *  ○ ended), the agent's name as a button (filled when selected) and the task in dim text, all on one baseline. */
 export function drawTabs(el: any, p: StageProps, tick: number, act: (a: Action) => void) {
   const { Box, Text, Button } = el
   const spin = SPIN[tick % SPIN.length]
   return (
-    <Box key="tabs" flexDirection="row" flexWrap="wrap" columnGap={1} paddingX={1}>
+    <Box key="tabs" flexDirection="row" flexWrap="wrap" columnGap={2} rowGap={1} paddingX={1} alignItems="center">
       {p.runs.length === 0
         ? <Text dimColor>No runs yet. Start one with "Start an agent", or ask Claude to hand a task to any installed agent.</Text>
         : p.runs.map(r => {
             const on = r.id === p.selected
-            const glyph = statusGlyph(r.status, spin)
             const c = colourOf(r)
             return (
-              <Box key={`tab:${r.id}`} flexDirection="row" backgroundColor={on ? '#313244' : undefined} paddingRight={1}>
-                <Text backgroundColor={c} color="#1E1E2E" bold> {glyph} </Text>
-                <Text> </Text>
-                <Button key={`tabbtn:${r.id}`} label={` ${r.engine} `} plain={on ? undefined : true} variant={on ? 'primary' : undefined}
+              <Box key={`tab:${r.id}`} flexDirection="row" columnGap={1} alignItems="center">
+                <Text color={c} bold>{statusGlyph(r.status, spin)}</Text>
+                <Button key={`tabbtn:${r.id}`} label={r.name ?? r.engine} variant={on ? 'primary' : undefined}
                   hover={{ color: c, bold: true } as any} onPress={() => act({ type: 'select', id: r.id })} />
-                <Text color={on ? '#F5E0DC' : '#7F849C'}> {r.label.slice(0, 22)}{r.label.length > 22 ? '…' : ''}</Text>
+                <Text color={on ? '#F5E0DC' : '#7F849C'} wrap="truncate-end">{r.label.slice(0, 22)}{r.label.length > 22 ? '…' : ''}</Text>
               </Box>
             )
           })}
@@ -219,8 +219,18 @@ function drawTiles(el: any, p: StageProps) {
 export function drawHead(el: any, p: StageProps, tick: number, px?: number) {
   const { Box, Text, Svg } = el
   if (Svg && px) {
-    const art = headSvg(p, px) // not `h`: JSX compiles to calls of the global h
-    return <Svg key="head-svg" source={art.source} alt={art.alt} width={px} height={art.height} />
+    // Separate pictures, drawn in a frame (isInteractive) so their CSS animation runs; the robot's picture is stable, so its
+    // animation is not restarted when the numbers in the pictures beside it change.
+    const pic = (hp: HeadPart) => (
+      <Svg key={hp.key} source={hp.source} alt={hp.alt} width={hp.width} height={hp.height} {...(hp.animated ? { isInteractive: true } : {})} />
+    )
+    return (
+      <Box key="head-svg" flexDirection="column" rowGap={1}>
+        {headParts(p, px).map((item, i) => Array.isArray(item)
+          ? <Box key={`head-row${i}`} flexDirection="row" columnGap={1}>{item.map(pic)}</Box>
+          : pic(item))}
+      </Box>
+    )
   }
   const run = p.runs.find(r => r.id === p.selected)
   return (

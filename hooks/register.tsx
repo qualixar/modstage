@@ -1081,19 +1081,20 @@ export const register: Register = on => {
       canType,
     }
     const run = allRuns.find(r => r.id === sel)
+    const px = els.Svg && (e as any).surface !== 'terminal' ? widthFor(((e.props as any).bodyColumns || 0) - 2) : undefined
+    const look = { desktop: !!px, px: px ? px - 24 : 0 } // inside a card's border and padding
     const pressedNow = (await read($, pressed)) as Record<string, 'busy' | 'done'>
-    const inboxEl = drawInbox(els, pending, colours, act, pressedNow, (await read($, answered)) as Answered)
+    const inboxEl = drawInbox(els, pending, colours, act, pressedNow, (await read($, answered)) as Answered, look)
     const launcherEl = (
       <Box key="native-launch" flexDirection="column" rowGap={1}>
-        {drawLauncher(els, [CLAUDE_AGENT, ...plugged], await read($, launchAgent), await read($, launchModel), canType, act, await read($, launchEffort), pressedNow)}
+        {drawLauncher(els, [CLAUDE_AGENT, ...plugged], await read($, launchAgent), await read($, launchModel), canType, act, await read($, launchEffort), pressedNow, look)}
         {allRuns.length === 0 ? drawSetup(els, plugged) : null}
       </Box>
     )
-    const bottom = run ? drawComposer(els, run, canType, act, pressedNow) : null
+    const bottom = run ? drawComposer(els, run, canType, act, pressedNow, look) : null
     // Desktop: the head is one vector picture sized to the pane, drawn right here (it animates by itself, so it needs no
     // frame clock). Terminal: a small Client animates the text head; the tabs and the transcript are ordinary pane
     // content, so the engine scrolls the whole pane with the wheel, arrows and Page keys.
-    const px = els.Svg && (e as any).surface !== 'terminal' ? widthFor(((e.props as any).bodyColumns || 0) - 2) : undefined
     const animated = !px && env.useClient && els.Client && !clientFault
     const n = animated || px ? 4 : await read($, tick) // 4 = the resting spinner glyph
     let head: any

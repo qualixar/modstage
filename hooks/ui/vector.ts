@@ -36,8 +36,8 @@ const CSS = `
 @media (prefers-color-scheme: light){.pt{filter:brightness(.68) saturate(1.1)}}
 .pulse{animation:pl 2.4s ease-in-out infinite}
 @keyframes pl{0%,100%{opacity:1}50%{opacity:.3}}
-.scan{transform-box:fill-box;transform-origin:center;animation:sc 2.4s ease-in-out infinite}
-@keyframes sc{0%,100%{transform:translateX(-7px)}50%{transform:translateX(7px)}}
+.look{transform-box:fill-box;transform-origin:center;animation:lk 2.4s ease-in-out infinite}
+@keyframes lk{0%,100%{transform:translateX(-2.2px)}50%{transform:translateX(2.2px)}}
 .blink{transform-box:fill-box;transform-origin:center;animation:bl 4.8s ease-in-out infinite}
 @keyframes bl{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
 .breathe{animation:br 4.8s ease-in-out infinite}
@@ -85,25 +85,57 @@ export const robotState = (status: string, waitingOnYou = false): RobotState =>
   status === 'running' || status === 'starting' ? (waitingOnYou ? 'waiting' : 'working')
     : status === 'error' ? 'failed' : status === 'idle' ? 'idle' : 'ended'
 
-/** The agent's mark: a squared head with a visor, an antenna and a neck, in the agent's colour. Drawn in a 48 x 48 cell
- *  at (x, y). Working: a light sweeps the visor and the antenna beats. Waiting on you: the antenna beats amber, eyes lit.
- *  Idle: two eyes that blink. Ended: eyes closed. Failed: a red flicker. Every loop shares the 2.4 s beat. */
+const INK = '#0F1530' // the dark navy outline of ModStage's logo
+
+/** The agent's mark, in the family of ModStage's own logo (flat, rounded, round eyes, an antenna ball): a filled head in
+ *  the agent's colour with a navy outline, drawn in a 48 x 48 cell at (x, y). Working: the eyes look left and right and the
+ *  antenna ball beats. Waiting on you: wide eyes and an amber ball. Idle: a smile and eyes that blink. Ended: eyes closed.
+ *  Failed: crossed eyes and a red ball. Every loop shares the 2.4 s beat, so marks that run together stay in step. */
 export function robot(x: number, y: number, colour: string, state: RobotState, size = 48): string {
   const k = size / 48
-  const lit = state === 'failed' ? '#F7768E' : state === 'waiting' ? '#F5B93A' : colour
-  const eyes =
-    state === 'working' ? `<rect class="scan" x="20" y="22.5" width="8" height="5" rx="2.5" fill="${lit}"/>`
-    : state === 'waiting' ? `<rect x="16.5" y="22" width="5" height="6" rx="2.5" fill="${lit}"/><rect x="26.5" y="22" width="5" height="6" rx="2.5" fill="${lit}"/>`
-    : state === 'failed' ? `<g class="flick" stroke="${lit}" stroke-width="2" stroke-linecap="round"><path d="M17 23l5 4M22 23l-5 4M26 23l5 4M31 23l-5 4"/></g>`
-    : state === 'idle' ? `<rect class="blink" x="16.5" y="22" width="5" height="6" rx="2.5" fill="${lit}"/><rect class="blink" x="26.5" y="22" width="5" height="6" rx="2.5" fill="${lit}"/>`
-    : `<path d="M16 25.5h6M26 25.5h6" stroke="${colour}" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>`
+  const ball = state === 'failed' ? '#F7768E' : state === 'waiting' ? '#F5B93A' : colour
   const beat = state === 'working' || state === 'waiting' ? ' class="pulse"' : ''
+  const eye = (cx: number, r: number, cls = '') => `<circle${cls} cx="${cx}" cy="27" r="${r}" fill="${INK}"/><circle cx="${cx - 1.1}" cy="25.6" r="1.1" fill="#fff" fill-opacity=".85"/>`
+  const eyes =
+    state === 'working' ? `<g class="look">${eye(17.5, 3.7)}${eye(30.5, 3.7)}</g>`
+    : state === 'waiting' ? `${eye(17.5, 4.4)}${eye(30.5, 4.4)}`
+    : state === 'failed' ? `<g class="flick" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"><path d="M14.5 24l6 6M20.5 24l-6 6M27.5 24l6 6M33.5 24l-6 6"/></g>`
+    : state === 'idle' ? `<g class="blink">${eye(17.5, 3.7)}</g><g class="blink">${eye(30.5, 3.7)}</g>`
+    : `<path d="M14 28.5q3.5-3.2 7 0M27 28.5q3.5-3.2 7 0" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`
+  const mouth =
+    state === 'failed' ? `<path d="M20 37q4-3 8 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`
+    : state === 'ended' ? `<path d="M21 36.5h6" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`
+    : `<path d="M20 35.5q4 3.4 8 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`
   return `<g transform="translate(${x} ${y}) scale(${k})">` +
-    `<rect x="3" y="21" width="3" height="10" rx="1.5" fill="${colour}" fill-opacity=".55"/><rect x="42" y="21" width="3" height="10" rx="1.5" fill="${colour}" fill-opacity=".55"/>` +
-    `<rect x="7" y="11" width="34" height="30" rx="10" class="pn"/>` +
-    `<rect x="7" y="11" width="34" height="30" rx="10" fill="none" stroke="${colour}" stroke-width="1.6" stroke-opacity=".9"/>` +
-    `<rect x="11.5" y="18" width="25" height="14" rx="7" class="vz"/>` + eyes +
-    `<path d="M24 11V6" stroke="${colour}" stroke-width="1.6" stroke-linecap="round"/><circle cx="24" cy="4.5" r="2.4" fill="${lit}"${beat}/>` +
-    `<rect x="16" y="42" width="16" height="3.5" rx="1.75" fill="${colour}" fill-opacity=".45"/>` +
+    `<rect x="2.2" y="24" width="4.6" height="9" rx="2.3" fill="${colour}" stroke="${INK}" stroke-width="2"/>` +
+    `<rect x="41.2" y="24" width="4.6" height="9" rx="2.3" fill="${colour}" stroke="${INK}" stroke-width="2"/>` +
+    `<path d="M24 15.5V9" stroke="${INK}" stroke-width="2.4" stroke-linecap="round"/>` +
+    `<circle cx="24" cy="6.6" r="3.4" fill="${ball}" stroke="${INK}" stroke-width="2"${beat}/>` +
+    `<rect x="6" y="15" width="36" height="28" rx="10" fill="${colour}" stroke="${INK}" stroke-width="2.4"/>` +
+    eyes + mouth +
     `</g>`
+}
+
+export type SectionIcon = 'spark' | 'flag' | 'chat' | 'list'
+const ICONS: Record<SectionIcon, (c: string) => string> = {
+  spark: c => `<path d="M11 5v12M5.5 8l11 6M5.5 14l11-6" stroke="${c}" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
+  flag: c => `<path d="M7 17V5M7 5.5h8l-2 3 2 3H7" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  chat: c => `<path d="M5 6.5h12v7H11l-3.5 3v-3H5z" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" fill="none"/>`,
+  list: c => `<path d="M6 7h10M6 11h10M6 15h6" stroke="${c}" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
+}
+
+/** The title row of a card on the desktop: an icon tile in the card's colour, a bold title, a dim line beside it and a thin
+ *  rule under it. One picture of exactly `width` px, 36 px tall, so every card starts the same way. */
+export function sectionHead(width: number, o: { title: string; sub?: string; colour: string; icon: SectionIcon }): { source: string; height: number; alt: string } {
+  const h = 36
+  const titleW = textWidth(o.title, 14) * 1.08 + 4
+  const subRoom = width - 34 - titleW - 14
+  const body =
+    `<rect x="0" y="4" width="22" height="22" rx="7" fill="${o.colour}" fill-opacity=".18"/>` +
+    `<g class="pt" transform="translate(0 4)">${ICONS[o.icon](o.colour)}</g>` +
+    // the title and the dim line are one text run, so the gap between them is the same whatever the title says
+    `<text x="32" y="20" font-family="${FONT}" font-variant-numeric="tabular-nums"><tspan class="tx" font-size="14" font-weight="700">${xml(o.title)}</tspan>` +
+    (o.sub && subRoom > 60 ? `<tspan class="t3" font-size="12" dx="10">${xml(fitText(o.sub, 12, subRoom))}</tspan>` : '') + `</text>` +
+    `<line class="ln" x1="0" y1="${h - 3.5}" x2="${width}" y2="${h - 3.5}" stroke-width="1"/>`
+  return { source: svgDoc(width, h, body), height: h, alt: o.sub ? `${o.title}. ${o.sub}` : o.title }
 }

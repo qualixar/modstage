@@ -6,6 +6,8 @@
 // A button that was just pressed shows what it did ("Allowing…", "✓ Allowed") for a moment, so a click is felt.
 import type { StageAgent, Pending, RunSummary } from '../../types'
 import { ENGINE, WARN as AMBER } from './palette.ts'
+import { sectionHead } from './vector.ts'
+import type { SectionIcon } from './vector.ts'
 
 export type NativeAction =
   | { type: 'decide'; runId: string; approvalId: string; choice: 'allow' | 'allow_session' | 'deny' }
@@ -56,6 +58,19 @@ export const clearDrafts = (): void => drafts.clear()
 /** The `value` prop only when there is a draft to restore: a box with nothing saved is never told its text. */
 const asValue = (d: string): { value?: string } => (d ? { value: d } : {})
 
+/** How the cards are drawn: on the desktop (`desktop`) their title rows are vector pictures `px` wide and the engine's own
+ *  text box (which already carries its Send button) is left alone; in the terminal everything is text. */
+export type Look = { desktop: boolean; px: number }
+const TERMINAL: Look = { desktop: false, px: 0 }
+
+/** A card's title row: the vector one on the desktop, the given text elsewhere. */
+function titleRow(el: any, look: Look, o: { key: string; title: string; sub?: string; colour: string; icon: SectionIcon; text: any }) {
+  const { Svg } = el
+  if (!look.desktop || !Svg || look.px < 200) return o.text
+  const art = sectionHead(look.px, { title: o.title, sub: o.sub, colour: o.colour, icon: o.icon })
+  return <Svg key={o.key} source={art.source} alt={art.alt} width={look.px} height={art.height} />
+}
+
 const ACCENT = '#D97757'
 const WARN = AMBER
 const OK = '#5FD38D'
@@ -93,8 +108,8 @@ function press(el: any, p: { key: string; slot: string; label: string; busy: str
 function row(el: any, key: string, label: string, children: any) {
   const { Box, Text } = el
   return (
-    <Box key={key} flexDirection="row" columnGap={1}>
-      <Box width={LABEL_W} flexShrink={0}><Text dimColor>{label}</Text></Box>
+    <Box key={key} flexDirection="row" columnGap={1} alignItems="flex-start">
+      <Box width={LABEL_W} flexShrink={0} marginTop={1}><Text dimColor>{label}</Text></Box>
       <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap" flexGrow={1} flexShrink={1} minWidth={0}>{children}</Box>
     </Box>
   )
@@ -102,16 +117,22 @@ function row(el: any, key: string, label: string, children: any) {
 
 /** Needs-you inbox: every approval any agent is waiting on, oldest first. */
 export function drawInbox(el: any, items: Pending[], colours: Record<string, string>, act: (a: NativeAction) => void,
-                          pressed: Pressed = {}, answered: Answered = {}) {
+                          pressed: Pressed = {}, answered: Answered = {}, look: Look = TERMINAL) {
   const { Box, Text } = el
   const done = Object.entries(answered)
   if (!items.length && !done.length) return null
   return (
     <Box key="inbox" flexDirection="column" borderStyle="round" borderColor={items.length ? WARN : OK} paddingX={1} rowGap={1}>
-      <Text>
-        <Text color={items.length ? WARN : OK} bold>{items.length ? '⚑ Needs you' : '✓ All answered'}</Text>
-        {items.length ? <Text dimColor>  ·  {items.length} waiting  ·  no answer in 10 min = deny</Text> : null}
-      </Text>
+      {titleRow(el, look, {
+        key: 'inbox-head', title: items.length ? 'Needs you' : 'All answered', colour: items.length ? WARN : OK, icon: 'flag',
+        sub: items.length ? `${items.length} waiting · no answer in 10 min = deny` : undefined,
+        text: (
+          <Text key="inbox-title">
+            <Text color={items.length ? WARN : OK} bold>{items.length ? '⚑ Needs you' : '✓ All answered'}</Text>
+            {items.length ? <Text dimColor>  ·  {items.length} waiting  ·  no answer in 10 min = deny</Text> : null}
+          </Text>
+        ),
+      })}
       {done.map(([id, a]) => (
         <Text key={`done:${id}`} wrap="truncate-end">
           <Text color={a.choice === 'deny' ? BAD : OK} bold>{a.choice === 'deny' ? '✓ Denied' : a.choice === 'allow_session' ? '✓ Allowed for this run' : '✓ Allowed'}</Text>
@@ -154,7 +175,7 @@ const boxHint = (el: any, key: string, enter: string) => {
 /** Start a run in one click: every installed agent is a button, always visible. Clicking one opens
  *  its task box right below; clicking it again (or Cancel) closes it. Runs start in safe (ask) mode. */
 export function drawLauncher(el: any, agents: StageAgent[], picked: string, model: string, canType: boolean,
-                             act: (a: NativeAction) => void, effort = '', pressed: Pressed = {}) {
+                             act: (a: NativeAction) => void, effort = '', pressed: Pressed = {}, look: Look = TERMINAL) {
   const { Box, Text, Button } = el
   const Input = el.Input
   const ready = agents.filter(a => a.installed)
@@ -171,10 +192,15 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
   }
   return (
     <Box key="launcher" flexDirection="column" borderStyle="round" borderColor={agent?.color ?? LINE} paddingX={1} rowGap={1}>
-      <Text wrap="truncate-end">
-        <Text color={ACCENT} bold>✻ Start an agent</Text>
-        <Text dimColor>  ·  pick one, describe the task, press Start</Text>
-      </Text>
+      {titleRow(el, look, {
+        key: 'launch-head', title: 'Start an agent', sub: 'pick one, describe the task, press Start', colour: agent?.color ?? ACCENT, icon: 'spark',
+        text: (
+          <Text key="launch-title" wrap="truncate-end">
+            <Text color={ACCENT} bold>✻ Start an agent</Text>
+            <Text dimColor>  ·  pick one, describe the task, press Start</Text>
+          </Text>
+        ),
+      })}
       {row(el, 'agents', 'agent', [
         ...ready.map(a => (
           <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '+ '}${a.name}`}
@@ -208,15 +234,17 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
           {drawEfforts(el, agent, model, effort, act)}
           {canType && Input ? (
             <Box key={`taskbox:${agent.id}`} flexDirection="column">
-              <Input key={`launch-task:${agent.id}`} rows={TASK_ROWS} submitLabel="Start" autoFocus
-                placeholder={`What should ${agent.name} do? Describe it, or paste what it needs to know.`}
-                {...asValue(draftOf(`launch:${agent.id}`))} onInput={(v: string) => setDraft(`launch:${agent.id}`, v)}
-                onSubmit={(v: string) => submit(agent, v)} />
-              {boxHint(el, `hint:${agent.id}`, 'starts the run')}
+              <Box flexDirection="row"><Box flexGrow={1} flexShrink={1} minWidth={0}>
+                <Input key={`launch-task:${agent.id}`} rows={look.desktop ? 1 : TASK_ROWS} submitLabel="Start" autoFocus
+                  placeholder={look.desktop ? `Describe the task for ${agent.name}…` : `What should ${agent.name} do? Describe it, or paste what it needs to know.`}
+                  {...asValue(draftOf(`launch:${agent.id}`))} onInput={(v: string) => setDraft(`launch:${agent.id}`, v)}
+                  onSubmit={(v: string) => submit(agent, v)} />
+              </Box></Box>
+              {look.desktop ? null : boxHint(el, `hint:${agent.id}`, 'starts the run')}
             </Box>
           ) : <Text dimColor>Typing is not available here; ask Claude to start the run.</Text>}
           <Box flexDirection="row" columnGap={1}>
-            {canType && Input ? press(el, { key: 'launch-start', slot: `launch-start|${agent.id}`, label: 'Start', busy: 'Starting…', done: '✓ Started', pressed, variant: 'primary',
+            {canType && Input && !look.desktop ? press(el, { key: 'launch-start', slot: `launch-start|${agent.id}`, label: 'Start', busy: 'Starting…', done: '✓ Started', pressed, variant: 'primary',
               onPress: () => submit(agent, draftOf(`launch:${agent.id}`)) }) : null}
             <Button key="launch-cancel" label="Cancel" onPress={() => act({ type: 'pickAgent', engine: '' })} />
           </Box>
@@ -276,7 +304,7 @@ function drawEfforts(el: any, agent: StageAgent, model: string, effort: string, 
 }
 
 /** The message box for the selected run. */
-export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a: NativeAction) => void, pressed: Pressed = {}) {
+export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a: NativeAction) => void, pressed: Pressed = {}, look: Look = TERMINAL) {
   const { Box, Text, Button } = el
   const Input = el.Input
   const colour = run.color ?? ENGINE[run.engine] ?? '#CDD6F4'
@@ -323,10 +351,15 @@ export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a
   }
   return (
     <Box key="composer" borderStyle="round" borderColor={running ? colour : LINE} paddingX={1} flexDirection="column" rowGap={1}>
-      <Text wrap="truncate-end">
-        <Text color={colour} bold>› message {run.name ?? run.engine}</Text>
-        <Text dimColor>  ·  {how}</Text>
-      </Text>
+      {titleRow(el, look, {
+        key: 'msg-head', title: `Message ${run.name ?? run.engine}`, sub: how, colour, icon: 'chat',
+        text: (
+          <Text key="msg-title" wrap="truncate-end">
+            <Text color={colour} bold>› message {run.name ?? run.engine}</Text>
+            <Text dimColor>  ·  {how}</Text>
+          </Text>
+        ),
+      })}
       {run.blocked && !running ? (
         <Text key="blocked" color={WARN} wrap="wrap">⛔ Turn ended blocked: {run.blocked}</Text>
       ) : null}
@@ -335,16 +368,18 @@ export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a
       ) : null}
       {canType && Input ? (
         <Box flexDirection="column">
-          <Input key={`say:${run.id}`} rows={MESSAGE_ROWS} submitLabel="Send"
-            placeholder={`Tell ${run.name ?? run.engine} what to do next… paste text, notes or a stack trace.`}
-            {...asValue(draftOf(draftKey))} onInput={(v: string) => setDraft(draftKey, v)}
-            onSubmit={(value: string) => send(value)} />
-          {boxHint(el, `hint:${run.id}`, 'sends')}
+          <Box flexDirection="row"><Box flexGrow={1} flexShrink={1} minWidth={0}>
+            <Input key={`say:${run.id}`} rows={look.desktop ? 1 : MESSAGE_ROWS} submitLabel="Send"
+              placeholder={look.desktop ? `Message ${run.name ?? run.engine}…` : `Tell ${run.name ?? run.engine} what to do next… paste text, notes or a stack trace.`}
+              {...asValue(draftOf(draftKey))} onInput={(v: string) => setDraft(draftKey, v)}
+              onSubmit={(value: string) => send(value)} />
+          </Box></Box>
+          {look.desktop ? null : boxHint(el, `hint:${run.id}`, 'sends')}
         </Box>
       ) : <Text dimColor>Typing is not available on this surface; Claude can still message the run.</Text>}
       <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
         <Box flexDirection="row" columnGap={1}>
-          {canType && Input ? press(el, { key: 'send-btn', slot: `send-btn|${run.id}`, label: 'Send', busy: 'Sending…', done: '✓ Sent', pressed, variant: 'primary', onPress: () => send(draftOf(draftKey)) }) : null}
+          {canType && Input && !look.desktop ? press(el, { key: 'send-btn', slot: `send-btn|${run.id}`, label: 'Send', busy: 'Sending…', done: '✓ Sent', pressed, variant: 'primary', onPress: () => send(draftOf(draftKey)) }) : null}
           {quick.map(([label, msg]) => press(el, { key: `q:${label}`, slot: `q:${label}|${run.id}`, label, busy: 'Sending…', done: '✓ Sent', pressed, onPress: () => send(msg, label) }))}
           {running && run.queued
             ? press(el, { key: 'jump', slot: `jump|${run.id}`, label: 'Interrupt and send now', busy: 'Interrupting…', done: '✓ Sent', pressed, variant: 'primary', onPress: () => act({ type: 'jump', id: run.id }) }) : null}

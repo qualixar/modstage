@@ -76,10 +76,10 @@ test('the width follows the pane in cells, never below a readable minimum or pas
 test('the robot shows each state its own way, in the agent\'s colour, on one shared beat', () => {
   const c = ENGINE.codex!
   const w = robot(0, 0, c, 'working'), g = robot(0, 0, c, 'waiting'), i = robot(0, 0, c, 'idle'), e = robot(0, 0, c, 'ended'), f = robot(0, 0, c, 'failed')
-  expect(w).toContain('class="scan"')
+  expect(w).toContain('class="look"')
   expect(g).toContain('#F5B93A')            // waiting on you: amber eyes
   expect(i).toContain('class="blink"')
-  expect(e).not.toMatch(/class="(scan|blink|flick)"/)
+  expect(e).not.toMatch(/class="(look|blink|flick)"/)
   expect(f).toContain('class="flick"')
   for (const m of [w, g, i, e, f]) expect(m).toContain(c)
 })
@@ -157,4 +157,37 @@ test('the layout checker itself sees an overlap and a text outside the picture',
   expect(boxes.length).toBe(3)
   expect(Math.min(boxes[0]!.x1, boxes[1]!.x1) - Math.max(boxes[0]!.x0, boxes[1]!.x0)).toBeGreaterThan(1)
   expect(boxes[2]!.x1).toBe(300)
+})
+
+test('the header carries ModStage\'s own logo, embedded, never loaded from anywhere', () => {
+  const { source } = headSvg(props([run('l1', 'codex', 'idle')], 'l1'), 500)
+  expect(source).toMatch(/<image href="data:image\/png;base64,[A-Za-z0-9+\/=]{2000,}"/)
+  expect(source).not.toMatch(/href="https?:/)
+})
+
+// ---- animation: a picture that changes restarts its animation, so the animated ones must not change without cause ----------
+import { headParts } from '../hooks/ui/head.ts'
+const flat = (p: any, W: number) => headParts(p, W).flat()
+
+test('the robot picture does not change while only the numbers beside it do', () => {
+  const a = run('s1', 'codex', 'running', { elapsed_s: 61, usage: usage({ input: 100 }) })
+  const b = run('s1', 'codex', 'running', { elapsed_s: 77, usage: usage({ input: 5000, cost_usd: 1.5 }) })
+  const mark = (r: any) => flat(props([r], 's1'), 700).find(x => x.key === 'hd-mark')!
+  expect(mark(a).source).toBe(mark(b).source)
+  expect(mark(a).animated).toBe(true)
+})
+
+test('the run card changes only when something worth showing changed (time moves in coarse steps)', () => {
+  const card = (s: number) => flat(props([run('s2', 'muse', 'running', { elapsed_s: s })], 's2'), 700).find(x => x.key === 'hd-run')!.source
+  expect(card(61)).toBe(card(89))            // the same half-minute
+  expect(card(61)).not.toBe(card(95))        // the next one
+  expect(card(5)).toBe(card(14))             // under a minute: 15 s steps
+  expect(card(14)).not.toBe(card(16))
+})
+
+test('the robot\'s picture is the agent\'s state and nothing else: another agent, another colour; another state, another face', () => {
+  const m = (r: any) => flat(props([r], 'x'), 700).find(p => p.key === 'hd-mark')!.source
+  expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'muse', 'running')))
+  expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'codex', 'error')))
+  expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'codex', 'running', { pending: [{ title: 'a' }] })))
 })
