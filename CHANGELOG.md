@@ -2,6 +2,14 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.11 - 2026-10-18
+
+### Fixed
+
+- **Approvals can no longer push the stage past the engine's size limit.** The stage received every run whole, including each waiting approval's full detail (up to 4,000 characters) and file lists; a few approvals across several agents passed the 100,000-character limit and the engine refused to draw the pane. The stage now receives only what it draws, capped.
+- **The animated stage no longer vanishes when an approval arrives.** Its height followed its own measured region, so the approval card above it shrank the region, which shrank the content, until the engine unmounted it ("changed its own size after each of 3 draws") and the panel showed a hole until it was reopened. The pane now gives the stage a fixed height computed from its own size and the cards around it, and if the engine ever unmounts the stage anyway, the pane draws it from the plugin and says why.
+- **The start panel no longer stacks the "not installed" buttons flush under the installed ones.** Installed and missing agents now share one wrapping row, so the gaps between buttons are the same everywhere.
+
 ## 0.0.10 - 2026-10-18
 
 ### Fixed

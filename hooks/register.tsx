@@ -7,9 +7,9 @@ import { agentLaunchedBy, touchesBridge } from './guard.ts'
 import { covers, decisionIn } from './decision.ts'
 import type { Json } from './bridge.ts'
 import { blankUsage, CLAUDE_COLOUR, describe, liveClaude, MAX_EVENTS, MAX_RUNS } from './claude-agents.ts'
-import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, installLine } from './ui/native.tsx'
+import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, installLine, nativeRows } from './ui/native.tsx'
 import type { NativeAction } from './ui/native.tsx'
-import { bandRuns, drawStage, statusGlyph } from './ui/stage.tsx'
+import { bandRuns, drawStage, forClient, statusGlyph } from './ui/stage.tsx'
 import type { Action, StageProps } from './ui/stage.tsx'
 
 const PANE = 'modstage'
@@ -35,6 +35,8 @@ const sessionKey = atom({ plugin: 'modstage', key: 'sessionKey' } as const, { ke
 // this session's id as the classic hook envelope carried it: the fallback when $.session.id() gives nothing
 const hookSession = atom({ plugin: 'modstage', key: 'hookSession' } as const, '')
 let sessionIdError = ''
+// set when the engine unmounts the animated stage (a Client fault): the pane then draws it from this module instead
+let clientFault = ''
 // prompt origins that are the user's own gesture; a peer session, a plugin, a schedule or a task notification is not
 const USER_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 const RUNNING = new Set(['running', 'starting'])
@@ -251,7 +253,7 @@ function ensureTimer($: any): void {
     beat += 1
     if (beat % 4 === 0) void poll($)
     if (beat % 240 === 0) void refreshAgents($)
-    if (!env.useClient) {
+    if (!env.useClient || clientFault) {
       void read($, runs).then(list => {
         if (list.some((r: RunSummary) => RUNNING.has(r.status))) void update($, tick, n => n + 1)
       })
@@ -284,7 +286,7 @@ async function poll($: any): Promise<void> {
     for (const p of fresh) askedBefore.add(p.id)
     if (fresh.length) {
       await revealInbox($)
-      $.ui.toast(`${fresh[0]!.engine} needs you: ${fresh[0]!.title.slice(0, 90)}`)
+      try { $.ui.toast(`${fresh[0]!.engine} needs you: ${fresh[0]!.title.slice(0, 90)}`) } catch { /* a toast must never stop the feed */ }
     }
     await update($, bridgeError, () => '')
     let id = await read($, selected)
@@ -838,6 +840,17 @@ export const register: Register = on => {
     return {}
   })
 
+  // If the engine unmounts the animated stage for any reason, keep the panel alive: draw it from this
+  // module (no Client) and say why, instead of leaving a hole until the person reopens the pane.
+  on('ui.fault', async ($, e: any, next) => {
+    if (e.element === 'stage' && !clientFault) {
+      clientFault = `${e.phase}: ${String(e.reason).slice(0, 80)}`
+      ensureTimer($)
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
   // Entry point on every surface: a band above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if ((e.props as any).hasSurvey) return next(e)
@@ -892,6 +905,9 @@ export const register: Register = on => {
     const colours: Record<string, string> = Object.fromEntries(plugged.map(a => [a.id, a.color ?? '#CDD6F4']))
     const canType = e.surface !== 'mobile'
     const act = (a: Action | NativeAction) => void perform($, a)
+    // The stage's height is decided here, from the pane and the native parts around it, so it cannot feed back on itself.
+    const stageRows = Math.min(80, Math.max(14, Math.round(e.viewport?.rows ?? 40) - nativeRows(pending.length, plugged.length + 1,
+      !!(await read($, launchAgent)), allRuns.length > 0)))
     const props: StageProps = {
       runs: allRuns as any,
       selected: sel,
@@ -904,6 +920,7 @@ export const register: Register = on => {
       problem: await read($, bridgeError),
       home: env.home,
       canType,
+      rows: stageRows,
     }
     const run = allRuns.find(r => r.id === sel)
     const top = (
@@ -914,16 +931,16 @@ export const register: Register = on => {
       </Box>
     )
     const bottom = run ? drawComposer(els, run, canType, act) : null
-    if (env.useClient && els.Client) {
+    if (env.useClient && els.Client && !clientFault) {
       const { Client } = els
       // Client props must be plain JSON: no `undefined` anywhere (an event with no detail, say).
-      const plain = JSON.parse(JSON.stringify(props))
+      const plain = forClient(props)
       // Native parts (inbox, launcher, message box) sit outside the animated region, so its
       // frame clock never redraws what the person is typing or pressing.
       return (
         <Box flexDirection="column" height="100%" rowGap={1}>
           {top}
-          <Client key="stage" module="./ui/stage.tsx" props={plain} flexGrow={1} />
+          <Client key="stage" module="./ui/stage.tsx" props={plain} height={stageRows} />
           {bottom}
         </Box>
       )
@@ -934,6 +951,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1}>
         {top}
+        {clientFault ? <Text dimColor wrap="truncate-end">animated view off ({clientFault}); drawing from the plugin instead</Text> : null}
         {drawStage(els, props, n, seenAt, act, { maxLines: Math.max(4, rows - 26), composer: false })}
         {bottom}
       </Box>

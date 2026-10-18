@@ -54,12 +54,34 @@ export type StageProps = {
   problem: string
   home: string
   canType: boolean
+  /** Rows the stage may fill, decided outside it (see nativeRows). */
+  rows?: number
 }
 export type Action =
   | { type: 'select'; id: string }
   | { type: 'send'; id: string; text: string }
   | { type: 'interrupt'; id: string }
   | { type: 'close'; id: string }
+
+/** Client props are plain JSON of at most 100000 characters; past that the engine unmounts the stage.
+ *  Pass only what the stage draws (a run's approvals as bare titles, no details, claims or file lists),
+ *  and if it is still too big, drop the oldest transcript rows. */
+export const CLIENT_PROP_LIMIT = 90000
+const clip = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : v)
+export function forClient(p: StageProps): StageProps {
+  const runs = p.runs.slice(0, 40).map((r: any) => ({
+    id: r.id, engine: r.engine, model: clip(r.model, 80) ?? null, label: clip(r.label, 120), cwd: clip(r.cwd, 300),
+    status: r.status, activity: clip(r.activity, 160), elapsed_s: r.elapsed_s, usage: r.usage, error: clip(r.error, 300) ?? null,
+    name: r.name, color: r.color, steer: r.steer, autonomy: r.autonomy, quiet_s: r.quiet_s, stuck: r.stuck,
+    approval_note: clip(r.approval_note, 200), blocked: clip(r.blocked, 200),
+    pending: (r.pending ?? []).slice(0, 10).map((x: any) => ({ title: clip(x?.title, 120) })),
+  }))
+  let out: StageProps = JSON.parse(JSON.stringify({ ...p, runs }))
+  while (JSON.stringify(out).length > CLIENT_PROP_LIMIT && out.feed.length > 4) {
+    out = { ...out, feed: out.feed.slice(Math.ceil(out.feed.length / 4)) }
+  }
+  return out
+}
 
 const ACCENT = '#D97757' // Claude's coral
 // Fallback colours (the bridge sends each run's own colour from the registry; these match it)
@@ -290,7 +312,15 @@ export default function StageClient(props: any, surface: any) {
   let seenAt = seenBy.get(surface)
   if (!seenAt) seenBy.set(surface, (seenAt = {}))
   for (const ev of p.feed ?? []) if (seenAt[ev.seq] === undefined) seenAt[ev.seq] = tick
+  // The region's height comes from the hooks module, never from surface.rows: a Client whose content
+  // follows its own measured region changes that region on every redraw, and the engine unmounts it.
   // header 3 + tabs 1 + card chrome 10 + spacing 3 + live line 1 = 18 rows that are not transcript
-  const maxLines = Math.max(4, (surface.rows || 36) - 18)
-  return drawStage(surface.elements, p, tick, seenAt, a => surface.post(a), { maxLines, composer: false })
+  const rows = Math.max(12, Math.round(p.rows ?? 36))
+  const maxLines = Math.max(4, rows - 18)
+  const { Box } = surface.elements
+  return (
+    <Box key="stage-fixed" flexDirection="column" height={rows} overflow="hidden">
+      {drawStage(surface.elements, p, tick, seenAt, a => surface.post(a), { maxLines, composer: false })}
+    </Box>
+  )
 }
