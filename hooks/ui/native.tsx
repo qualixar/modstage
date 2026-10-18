@@ -6,7 +6,7 @@
 // A button that was just pressed shows what it did ("Allowing…", "✓ Allowed") for a moment, so a click is felt.
 import type { StageAgent, Pending, RunSummary } from '../../types'
 import { ENGINE, WARN as AMBER } from './palette.ts'
-import { sectionHead } from './vector.ts'
+import { agentFace, sectionHead } from './vector.ts'
 import type { SectionIcon } from './vector.ts'
 
 export type NativeAction =
@@ -55,8 +55,8 @@ const drafts = new Map<string, string>()
 export const draftOf = (key: string): string => drafts.get(key) ?? ''
 export const setDraft = (key: string, text: string): void => { if (text) drafts.set(key, text); else drafts.delete(key) }
 export const clearDrafts = (): void => drafts.clear()
-/** The `value` prop only when there is a draft to restore: a box with nothing saved is never told its text. */
-const asValue = (d: string): { value?: string } => (d ? { value: d } : {})
+/** The `value` prop: always the draft (empty once sent), so a box that was sent is empty again and a half-written one is restored. */
+const asValue = (d: string): { value: string } => ({ value: d })
 
 /** How the cards are drawn: on the desktop (`desktop`) their title rows are vector pictures `px` wide and the engine's own
  *  text box (which already carries its Send button) is left alone; in the terminal everything is text. */
@@ -172,6 +172,29 @@ const boxHint = (el: any, key: string, enter: string) => {
   return <Text key={key} dimColor wrap="truncate-end">Enter {enter} · a new line is typed as in the prompt box · paste as much text as you like</Text>
 }
 
+/** The agent picker on the desktop: one column per agent, its robot (ringed in its colour when picked) over a button with its
+ *  name. The robot is a picture, so the button under it is what is pressed. */
+function picker(el: any, ready: StageAgent[], missing: StageAgent[], picked: string, act: (a: NativeAction) => void) {
+  const { Box, Text, Button, Svg } = el
+  const cell = (a: StageAgent, installed: boolean) => {
+    const on = a.id === picked
+    const face = agentFace(a.color ?? ENGINE[a.id] ?? '#CDD6F4', on, installed)
+    return (
+      <Box key={`pickcol:${a.id}`} flexDirection="column" alignItems="center" rowGap={0}>
+        <Svg key={`face:${a.id}`} source={face.source} alt={`${a.name}${installed ? '' : ', not installed'}`} width={face.size} height={face.size} />
+        <Button key={`pick:${a.id}`} label={installed ? `${on ? '● ' : ''}${a.name}` : `${a.name}`} variant={on ? 'primary' : undefined}
+          onPress={() => act({ type: 'pickAgent', engine: on ? '' : a.id })} />
+        {installed ? null : <Text dimColor>not installed</Text>}
+      </Box>
+    )
+  }
+  return (
+    <Box key="picker" flexDirection="row" flexWrap="wrap" columnGap={2} rowGap={1}>
+      {[...ready.map(a => cell(a, true)), ...missing.map(a => cell(a, false))]}
+    </Box>
+  )
+}
+
 /** Start a run in one click: every installed agent is a button, always visible. Clicking one opens
  *  its task box right below; clicking it again (or Cancel) closes it. Runs start in safe (ask) mode. */
 export function drawLauncher(el: any, agents: StageAgent[], picked: string, model: string, canType: boolean,
@@ -193,7 +216,7 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
   return (
     <Box key="launcher" flexDirection="column" borderStyle="round" borderColor={agent?.color ?? LINE} paddingX={1} rowGap={1}>
       {titleRow(el, look, {
-        key: 'launch-head', title: 'Start an agent', sub: 'pick one, describe the task, press Start', colour: agent?.color ?? ACCENT, icon: 'spark',
+        key: 'launch-head', title: 'Start an agent', sub: 'pick one, describe the task, press Start', colour: agent?.color ?? ACCENT, icon: 'robot',
         text: (
           <Text key="launch-title" wrap="truncate-end">
             <Text color={ACCENT} bold>✻ Start an agent</Text>
@@ -201,7 +224,8 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
           </Text>
         ),
       })}
-      {row(el, 'agents', 'agent', [
+      {look.desktop && el.Svg ? picker(el, ready, missing, picked, act) : (
+        row(el, 'agents', 'agent', [
         ...ready.map(a => (
           <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '+ '}${a.name}`}
             variant={a.id === picked ? 'primary' : undefined}
@@ -211,7 +235,7 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
           <Button key={`pick:${a.id}`} label={`${a.id === picked ? '● ' : '○ '}${a.name} (not installed)`}
             onPress={() => act({ type: 'pickAgent', engine: a.id === picked ? '' : a.id })} />
         )),
-      ])}
+      ]))}
       {absent ? (
         <Box key={`missing:${absent.id}`} flexDirection="column">
           <Text wrap="wrap"><Text color={WARN} bold>{absent.name} is not installed on this machine.</Text></Text>
@@ -350,9 +374,9 @@ export function drawComposer(el: any, run: RunSummary, canType: boolean, act: (a
     act({ type: 'send', id: run.id, text: t, ...(via ? { via } : {}) }) // the draft is emptied once it has been sent
   }
   return (
-    <Box key="composer" borderStyle="round" borderColor={running ? colour : LINE} paddingX={1} flexDirection="column" rowGap={1}>
+    <Box key="composer" borderStyle="round" borderColor={colour} paddingX={1} flexDirection="column" rowGap={1}>
       {titleRow(el, look, {
-        key: 'msg-head', title: `Message ${run.name ?? run.engine}`, sub: how, colour, icon: 'chat',
+        key: 'msg-head', title: `Message ${run.name ?? run.engine}`, sub: how, colour, icon: 'robot',
         text: (
           <Text key="msg-title" wrap="truncate-end">
             <Text color={colour} bold>› message {run.name ?? run.engine}</Text>

@@ -2,6 +2,21 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.18 - 2026-10-19
+
+### Fixed
+
+- **The pane could not be scrolled while a run was streaming (P1).** Two causes. 0.0.17 drew the head's pictures in frames (`isInteractive`) so they would animate, and a frame swallows the mouse wheel; every picture is an ordinary image again (the animation is CSS, as in 0.0.16), and a test fails if any picture is ever framed. And the follow-the-output rule counted "one row short of the end" as still at the end, so one wheel notch up was undone by the next poll: any scroll up now ends following at once and cancels a pending snap to the end, a rest anywhere but the very end does too, and picking an agent in the launcher stops following so the pane is never pulled away from it.
+- **The logo was missing.** The panel's picture scrub does not draw an embedded bitmap, so 0.0.17's header showed a blank tile. The logo is now redrawn as vector shapes (the four robots and the sound waves) and drawn from the same colours as the README's.
+- **A failed send never leaves a trace.** Enter pressed twice quickly no longer sends twice (the second press is ignored while the first is running); a message to a Claude subagent that fails to send is no longer shown in its transcript as sent; the box is emptied only when the bridge took the message, and a box that was sent is empty again.
+- **An agent colour from `~/.modstage/agents.json` can no longer reach any picture unchecked** (the robots, the picker, the card titles, pills and gauges); 0.0.16 guarded the head only.
+- **Pictures fit the pane.** Card titles are as wide as the card's inside (they were 26 px short); a pane that does not report its width falls back to a sane width instead of the minimum.
+
+### Changed
+
+- **Start an agent is a row of robots.** On the desktop each agent is its own robot (ringed in its colour when picked, asleep and grey when its CLI is not installed) over a button with its name, instead of a row of grey buttons. The card titles of Start an agent and the message box carry a small robot in the agent's colour, and the message box is edged in the agent's colour.
+- The robot tile beside the run card is vertically centred; long notes (an agent's permission note) wrap over two lines instead of being cut; the header's "stalled" counter moves in 10-second steps so it does not redraw every second.
+
 ## 0.0.17 - 2026-10-19
 
 ### Changed
@@ -12,7 +27,7 @@ All notable changes to ModStage are recorded here. The format follows [Keep a Ch
 
 ### Fixed
 
-- **Animation runs, and keeps running.** The engine draws a plain vector picture as a still image; only a picture drawn in a frame (`isInteractive`) animates. The animated pictures of the head now ask for the frame. The head is also split into separate pictures, because a picture that changes restarts its animation: the robot's picture now depends only on the agent, its state and the card's height, so it keeps animating while the numbers beside it change; elapsed time moves in 15 s and 30 s steps instead of every second; and pulses live only in pictures that stay constant. Tests cover each of these.
+- **Animation runs, and keeps running.** The engine draws a plain vector picture as a still image; only a picture drawn in a frame (`isInteractive`) animates. The animated pictures of the head now ask for the frame. (Superseded in 0.0.18: a frame swallows the mouse wheel and the pane stopped scrolling; every picture is an image again.) The head is also split into separate pictures, because a picture that changes restarts its animation: the robot's picture now depends only on the agent, its state and the card's height, so it keeps animating while the numbers beside it change; elapsed time moves in 15 s and 30 s steps instead of every second; and pulses live only in pictures that stay constant. Tests cover each of these.
 
 ### Known limits
 

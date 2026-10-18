@@ -5,6 +5,11 @@
 // textWidth, fitText and the escape table follow the small helpers in ersinkoc/claude-mods (MIT, Copyright (c) 2026
 // Ersin Koç); see THIRD-PARTY-NOTICES.md.
 
+import { FALLBACK, safeColour } from './palette.ts'
+
+/** A colour that is going into markup: a plain hex value, or the neutral fallback. Agent colours come from a user's config file. */
+const hexOr = (c: unknown): string => safeColour(c) ?? FALLBACK
+
 export const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,'Helvetica Neue',sans-serif"
 export const MONO = "ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace"
 
@@ -29,7 +34,8 @@ export function fitText(s: string, size: number, maxW: number, mono = false): st
   return out + '…'
 }
 
-/** Shared styles. One 2.4 s beat drives every loop (pulse, scan, blink), so animations that run together stay in step. */
+/** Shared styles. One 2.4 s beat drives every loop (pulse, look, blink), so animations that run together stay in step. The
+ *  pictures are drawn as images, never in a frame: a frame (isInteractive) swallows the mouse wheel and the pane stops scrolling. */
 const CSS = `
 .pn{fill:#f3f3f1}.ln{stroke:#e0dfda}.tx{fill:#1c1c1a}.t2{fill:#5b5b57}.t3{fill:#8a8a85}.tk{fill:#e3e2dd}.vz{fill:#14151c}
 @media (prefers-color-scheme: dark){.pn{fill:#262624}.ln{stroke:#3a3a37}.tx{fill:#ecebe8}.t2{fill:#b3b2ad}.t3{fill:#7d7c77}.tk{fill:#33332f}.vz{fill:#0d0e14}}
@@ -40,8 +46,6 @@ const CSS = `
 @keyframes lk{0%,100%{transform:translateX(-2.2px)}50%{transform:translateX(2.2px)}}
 .blink{transform-box:fill-box;transform-origin:center;animation:bl 4.8s ease-in-out infinite}
 @keyframes bl{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
-.breathe{animation:br 4.8s ease-in-out infinite}
-@keyframes br{0%,100%{opacity:.55}50%{opacity:1}}
 .flick{animation:fl 2.4s steps(1,end) infinite}
 @keyframes fl{0%,60%{opacity:1}65%{opacity:.25}70%{opacity:1}}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
@@ -59,7 +63,8 @@ export function text(x: number, y: number, s: string, o: TextOpts = {}): string 
 }
 
 /** A rounded pill: tinted fill, the colour's own text. Returns its markup and width so callers can lay pills in a row. */
-export function pill(x: number, y: number, label: string, colour: string, o: { dot?: boolean; pulse?: boolean; h?: number; size?: number } = {}): { svg: string; w: number } {
+export function pill(x: number, y: number, label: string, colourIn: string, o: { dot?: boolean; pulse?: boolean; h?: number; size?: number } = {}): { svg: string; w: number } {
+  const colour = hexOr(colourIn)
   const h = o.h ?? 22
   const size = o.size ?? 11
   const pad = 10
@@ -73,7 +78,8 @@ export function pill(x: number, y: number, label: string, colour: string, o: { d
 }
 
 /** A rounded progress bar: track, then the fill, never narrower than its own height so a small value stays a pill. */
-export function bar(x: number, y: number, w: number, h: number, ratio: number | null, colour: string): string {
+export function bar(x: number, y: number, w: number, h: number, ratio: number | null, colourIn: string): string {
+  const colour = hexOr(colourIn)
   const r = ratio == null || !Number.isFinite(ratio) ? 0 : Math.max(0, Math.min(1, ratio))
   const fw = r > 0 ? Math.max(h, w * r) : 0
   return `<rect class="tk" x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>` +
@@ -89,18 +95,19 @@ const INK = '#0F1530' // the dark navy outline of ModStage's logo
 
 /** The agent's mark, in the family of ModStage's own logo (flat, rounded, round eyes, an antenna ball): a filled head in
  *  the agent's colour with a navy outline, drawn in a 48 x 48 cell at (x, y). Working: the eyes look left and right and the
- *  antenna ball beats. Waiting on you: wide eyes and an amber ball. Idle: a smile and eyes that blink. Ended: eyes closed.
+ *  ball beats. Waiting on you: wide eyes and an amber ball that beats. Idle: a smile and a blink. Ended: eyes closed.
  *  Failed: crossed eyes and a red ball. Every loop shares the 2.4 s beat, so marks that run together stay in step. */
-export function robot(x: number, y: number, colour: string, state: RobotState, size = 48): string {
+export function robot(x: number, y: number, colourIn: string, state: RobotState, size = 48): string {
+  const colour = hexOr(colourIn)
   const k = size / 48
   const ball = state === 'failed' ? '#F7768E' : state === 'waiting' ? '#F5B93A' : colour
   const beat = state === 'working' || state === 'waiting' ? ' class="pulse"' : ''
-  const eye = (cx: number, r: number, cls = '') => `<circle${cls} cx="${cx}" cy="27" r="${r}" fill="${INK}"/><circle cx="${cx - 1.1}" cy="25.6" r="1.1" fill="#fff" fill-opacity=".85"/>`
+  const eye = (cx: number, r: number) => `<circle cx="${cx}" cy="27" r="${r}" fill="${INK}"/><circle cx="${cx - 1.1}" cy="25.6" r="1.1" fill="#fff" fill-opacity=".85"/>`
   const eyes =
     state === 'working' ? `<g class="look">${eye(17.5, 3.7)}${eye(30.5, 3.7)}</g>`
     : state === 'waiting' ? `${eye(17.5, 4.4)}${eye(30.5, 4.4)}`
     : state === 'failed' ? `<g class="flick" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"><path d="M14.5 24l6 6M20.5 24l-6 6M27.5 24l6 6M33.5 24l-6 6"/></g>`
-    : state === 'idle' ? `<g class="blink">${eye(17.5, 3.7)}</g><g class="blink">${eye(30.5, 3.7)}</g>`
+    : state === 'idle' ? `<g class="blink">${eye(17.5, 3.7)}${eye(30.5, 3.7)}</g>`
     : `<path d="M14 28.5q3.5-3.2 7 0M27 28.5q3.5-3.2 7 0" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`
   const mouth =
     state === 'failed' ? `<path d="M20 37q4-3 8 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`
@@ -116,26 +123,65 @@ export function robot(x: number, y: number, colour: string, state: RobotState, s
     `</g>`
 }
 
-export type SectionIcon = 'spark' | 'flag' | 'chat' | 'list'
+/** ModStage's own logo (assets/logo/modstage-logo.png: four robots on a stage, sound waves either side) redrawn as vector
+ *  shapes, because the engine's picture scrub does not draw an embedded bitmap. Drawn in a size x size tile at (x, y). */
+export function logoMark(x: number, y: number, size: number): string {
+  const k = size / 512
+  const ink = '#0D1529'
+  const wave = (cx: number, dir: 1 | -1) => [70, 98, 126].map(r => {
+    const t0 = (105 * Math.PI) / 180, t1 = (165 * Math.PI) / 180
+    const pt = (t: number) => `${(cx + dir * r * Math.cos(t)).toFixed(1)} ${(215 - r * Math.sin(t)).toFixed(1)}`
+    return `<path d="M${pt(dir === 1 ? t1 : t0)}A${r} ${r} 0 0 1 ${pt(dir === 1 ? t0 : t1)}" fill="none" stroke="#F3E6C9" stroke-width="9" stroke-linecap="round"/>`
+  }).join('')
+  const bot = (cx: number, top: number, w: number, h: number, fill: string, ball: number, eyeY: number, eyeR: number, gap: number) =>
+    `<path d="M${cx} ${top}V${top - 26}" stroke="${ink}" stroke-width="10" stroke-linecap="round"/>` +
+    `<circle cx="${cx}" cy="${top - 34}" r="16" fill="${fill}" stroke="${ink}" stroke-width="8"/>` +
+    `<rect x="${cx - w / 2}" y="${top}" width="${w}" height="${h}" rx="36" fill="${fill}" stroke="${ink}" stroke-width="10"/>` +
+    `<circle cx="${cx - gap}" cy="${eyeY}" r="${eyeR}" fill="${ink}"/><circle cx="${cx + gap}" cy="${eyeY}" r="${eyeR}" fill="${ink}"/>`
+  return `<g transform="translate(${x} ${y}) scale(${k})"><defs><clipPath id="lgc"><rect width="512" height="512" rx="104"/></clipPath></defs>` +
+    `<g clip-path="url(#lgc)"><rect width="512" height="512" fill="#0B1221"/>${wave(140, 1)}${wave(372, -1)}` +
+    bot(257, 104, 162, 150, '#C28AE9', 0, 176, 17, 40) +
+    `<g transform="rotate(-13 125 276)">${bot(125, 206, 172, 140, '#6A9CF8', 0, 264, 17, 36)}</g>` +
+    `<g transform="rotate(13 387 276)">${bot(387, 206, 172, 140, '#DEAB60', 0, 264, 17, 36)}</g>` +
+    bot(256, 272, 222, 200, '#E47756', 0, 360, 27, 42) +
+    `</g></g>`
+}
+
+export type SectionIcon = 'spark' | 'flag' | 'chat' | 'list' | 'robot'
 const ICONS: Record<SectionIcon, (c: string) => string> = {
   spark: c => `<path d="M11 5v12M5.5 8l11 6M5.5 14l11-6" stroke="${c}" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
   flag: c => `<path d="M7 17V5M7 5.5h8l-2 3 2 3H7" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
   chat: c => `<path d="M5 6.5h12v7H11l-3.5 3v-3H5z" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" fill="none"/>`,
   list: c => `<path d="M6 7h10M6 11h10M6 15h6" stroke="${c}" stroke-width="1.8" stroke-linecap="round" fill="none"/>`,
+  robot: c => robot(-1, -1, c, 'idle', 24),
 }
 
 /** The title row of a card on the desktop: an icon tile in the card's colour, a bold title, a dim line beside it and a thin
  *  rule under it. One picture of exactly `width` px, 36 px tall, so every card starts the same way. */
-export function sectionHead(width: number, o: { title: string; sub?: string; colour: string; icon: SectionIcon }): { source: string; height: number; alt: string } {
+export function sectionHead(width: number, oIn: { title: string; sub?: string; colour: string; icon: SectionIcon }): { source: string; height: number; alt: string } {
+  const o = { ...oIn, colour: hexOr(oIn.colour) }
   const h = 36
   const titleW = textWidth(o.title, 14) * 1.08 + 4
   const subRoom = width - 34 - titleW - 14
   const body =
-    `<rect x="0" y="4" width="22" height="22" rx="7" fill="${o.colour}" fill-opacity=".18"/>` +
-    `<g class="pt" transform="translate(0 4)">${ICONS[o.icon](o.colour)}</g>` +
+    (o.icon === 'robot' ? '' : `<rect x="0" y="4" width="22" height="22" rx="7" fill="${o.colour}" fill-opacity=".18"/>`) +
+    `<g class="${o.icon === 'robot' ? '' : 'pt'}" transform="translate(0 4)">${ICONS[o.icon](o.colour)}</g>` +
     // the title and the dim line are one text run, so the gap between them is the same whatever the title says
     `<text x="32" y="20" font-family="${FONT}" font-variant-numeric="tabular-nums"><tspan class="tx" font-size="14" font-weight="700">${xml(o.title)}</tspan>` +
     (o.sub && subRoom > 60 ? `<tspan class="t3" font-size="12" dx="10">${xml(fitText(o.sub, 12, subRoom))}</tspan>` : '') + `</text>` +
     `<line class="ln" x1="0" y1="${h - 3.5}" x2="${width}" y2="${h - 3.5}" stroke-width="1"/>`
   return { source: svgDoc(width, h, body), height: h, alt: o.sub ? `${o.title}. ${o.sub}` : o.title }
+}
+
+/** An agent's tile in the picker: its robot on a card, ringed in its colour when picked, grey and asleep when its CLI is not
+ *  installed. 64 px square. Its source depends on (colour, picked, installed) only, so it never restarts its animation. */
+export function agentFace(colour: string, picked: boolean, installed: boolean): { source: string; size: number } {
+  const size = 64
+  const c = installed ? hexOr(colour) : '#8A8FA3'
+  const state: RobotState = !installed ? 'ended' : picked ? 'working' : 'idle'
+  const body = `<rect class="pn" x="1" y="1" width="62" height="62" rx="18"/>` +
+    (picked ? `<rect x="1" y="1" width="62" height="62" rx="18" fill="${c}" fill-opacity=".14"/>` : '') +
+    `<rect x="1.5" y="1.5" width="61" height="61" rx="17.5" fill="none" stroke="${c}" stroke-opacity="${picked ? 1 : 0.32}" stroke-width="${picked ? 2.5 : 1.5}"/>` +
+    robot(10, 11, c, state, 44)
+  return { source: svgDoc(size, size, body), size }
 }

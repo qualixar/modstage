@@ -219,11 +219,8 @@ function drawTiles(el: any, p: StageProps) {
 export function drawHead(el: any, p: StageProps, tick: number, px?: number) {
   const { Box, Text, Svg } = el
   if (Svg && px) {
-    // Separate pictures, drawn in a frame (isInteractive) so their CSS animation runs; the robot's picture is stable, so its
-    // animation is not restarted when the numbers in the pictures beside it change.
-    const pic = (hp: HeadPart) => (
-      <Svg key={hp.key} source={hp.source} alt={hp.alt} width={hp.width} height={hp.height} {...(hp.animated ? { isInteractive: true } : {})} />
-    )
+    // Separate pictures, each an image (never a frame: a frame swallows the mouse wheel and the pane stops scrolling).
+    const pic = (hp: HeadPart) => <Svg key={hp.key} source={hp.source} alt={hp.alt} width={hp.width} height={hp.height} />
     return (
       <Box key="head-svg" flexDirection="column" rowGap={1}>
         {headParts(p, px).map((item, i) => Array.isArray(item)

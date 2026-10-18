@@ -7,9 +7,8 @@
 import type { RunView, StageProps } from './stage.tsx'
 import { BAD, OK, STATUS, WARN, colourOf } from './palette.ts'
 import { autonomyLabel, elapsed, kTok, pct, shortPath, steerLabel, totals } from './format.ts'
-import { bar, fitText, pill, robot, robotState, svgDoc, text, textWidth, xml } from './vector.ts'
+import { bar, fitText, logoMark, pill, robot, robotState, svgDoc, text, textWidth, xml } from './vector.ts'
 import { engineDots } from './runs.ts'
-import { LOGO_PNG } from './logo.ts'
 
 const PAD = 16 // inner margin of a card
 const GAP = 10 // between blocks
@@ -25,13 +24,12 @@ type Part = { svg: string; h: number }
 /** The header card: wordmark and live state, then one aligned cell per agent that has runs. */
 function header(p: StageProps, W: number): Part {
   const live = p.age >= 0 && p.age <= 3
-  const label = live ? `live · ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}` : p.age < 0 ? 'connecting' : `stalled ${p.age}s`
+  const label = live ? `live · ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}` : p.age < 0 ? 'connecting' : `stalled ${Math.floor(p.age / 10) * 10}s+`
   const status = pill(0, 0, label, live ? OK : p.age < 0 ? WARN : BAD, { dot: true, pulse: live, h: 24 })
   const s: string[] = []
   const top = 14
-  // ModStage's own logo, clipped to a rounded tile, then the wordmark
-  s.push(`<defs><clipPath id="msl"><rect x="${PAD}" y="${top}" width="34" height="34" rx="10"/></clipPath></defs>`)
-  s.push(`<image href="${LOGO_PNG}" x="${PAD}" y="${top}" width="34" height="34" clip-path="url(#msl)" preserveAspectRatio="xMidYMid slice"/>`)
+  // ModStage's own logo, redrawn as vector, then the wordmark
+  s.push(logoMark(PAD, top, 34))
   s.push(text(PAD + 44, top + 23, 'ModStage', { size: 17, weight: 700 }))
   const beside = W - PAD * 2 >= 44 + textWidth('ModStage', 17) + 16 + status.w
   let y = top + 34
@@ -53,7 +51,7 @@ function header(p: StageProps, W: number): Part {
     dots.forEach((d, i) => {
       const x = PAD + (i % perRow) * cell
       const cy = y + Math.floor(i / perRow) * 22
-      s.push(`<circle cx="${x + 5}" cy="${cy - 4}" r="4" fill="${d.colour}"${d.working ? ' class="pulse"' : ''}${d.open ? '' : ' fill-opacity=".4"'}/>`)
+      s.push(`<circle cx="${x + 5}" cy="${cy - 4}" r="4" fill="${d.colour}"${d.open ? '' : ' fill-opacity=".4"'}/>`)
       s.push(text(x + 16, cy, names[i]!, { cls: d.open ? 't2' : 't3', size: 12, weight: d.working ? 600 : 400 }))
     })
     y += (Math.ceil(dots.length / perRow) - 1) * 22
@@ -106,18 +104,31 @@ function tiles(p: StageProps, W: number): Part {
  *  changed: a source that changed every second would reload the picture every second and restart every animation in it. */
 const coarse = (s: number): string => elapsed(s < 60 ? Math.floor(s / 15) * 15 : Math.floor(s / 30) * 30)
 
-/** The mark's tile: the agent's robot on a card of its own, as tall as the run's info card beside it. Its source depends on
- *  the agent's colour, the robot's state and the card's height only, so it stays the same picture (and its animation keeps
- *  running without a restart) while the numbers beside it change. */
+/** The mark's tile: the agent's robot on a card of its own, as tall as the run's info card beside it, the robot in the middle.
+ *  Its source depends on the agent's colour, the robot's state and the card's height only, so it stays the same picture (and
+ *  its CSS animation keeps running without a restart) while the numbers beside it change. */
 function robotTile(run: RunView, waiting: number, w: number, h: number): Part {
   const colour = colourOf(run)
   const mark = Math.min(56, w - 20)
-  const s = [
-    `<rect class="pn" x="0" y="0" width="${w}" height="${h}" rx="16"/>`,
-    `<rect x="0.75" y="0.75" width="${w - 1.5}" height="${h - 1.5}" rx="15.5" fill="none" stroke="${colour}" stroke-opacity=".38" stroke-width="1.5"/>`,
-    robot((w - mark) / 2, PAD, colour, robotState(run.status, waiting > 0), mark),
-  ]
-  return { svg: s.join(''), h }
+  return {
+    svg: [
+      `<rect class="pn" x="0" y="0" width="${w}" height="${h}" rx="16"/>`,
+      `<rect x="0.75" y="0.75" width="${w - 1.5}" height="${h - 1.5}" rx="15.5" fill="none" stroke="${colour}" stroke-opacity=".38" stroke-width="1.5"/>`,
+      robot((w - mark) / 2, Math.max(PAD, (h - mark) / 2), colour, robotState(run.status, waiting > 0), mark),
+    ].join(''),
+    h,
+  }
+}
+
+/** Splits a note into at most two lines that each fit `room`; the second ends with … when the note is longer. */
+function twoLines(note: string, size: number, room: number): string[] {
+  if (textWidth(note, size) <= room) return [note]
+  const words = note.split(/\s+/)
+  let first = ''
+  let i = 0
+  while (i < words.length && textWidth(`${first} ${words[i]}`.trim(), size) <= room) first = `${first} ${words[i++]}`.trim()
+  if (!first) return [fitText(note, size, room)]
+  return [first, fitText(words.slice(i).join(' '), size, room)]
 }
 
 function infoCard(p: StageProps, run: RunView, W: number): Part {
@@ -173,9 +184,15 @@ function infoCard(p: StageProps, run: RunView, W: number): Part {
   else if (working && (run.quiet_s ?? 0) >= 45) put(`no output ${(run.quiet_s ?? 0) < 120 ? 'for a minute' : `${quietMin}m`}`, '#8A8FA3')
   y = rowTop + 20
 
-  // Notes that need attention.
+  // Notes that need attention, over up to two lines.
   const note = run.blocked ? { t: `blocked: ${run.blocked}`, c: BAD } : run.approval_note ? { t: run.approval_note, c: WARN } : null
-  if (note) { y += 20; body.push(`<text class="pt" fill="${note.c}" x="${x0}" y="${y}" font-family="system-ui,sans-serif" font-size="12">${xml(fitText(note.t, 12, room))}</text>`) }
+  if (note) {
+    for (const line of twoLines(note.t, 12, room)) {
+      y += 18
+      body.push(`<text class="pt" fill="${note.c}" x="${x0}" y="${y}" font-family="system-ui,sans-serif" font-size="12">${xml(line)}</text>`)
+    }
+    y += 2
+  }
 
   // Path, context gauge and usage.
   y += 22
@@ -211,7 +228,7 @@ function infoCard(p: StageProps, run: RunView, W: number): Part {
 }
 
 /** One picture of the head: its own source, size and the text a screen reader gets. */
-export type HeadPart = { key: string; source: string; width: number; height: number; alt: string; animated: boolean }
+export type HeadPart = { key: string; source: string; width: number; height: number; alt: string }
 /** The head's pictures in reading order; a group of two is drawn side by side (the mark's tile, then the run's card). */
 export type HeadLayout = Array<HeadPart | HeadPart[]>
 
@@ -222,21 +239,21 @@ const RUN_GAP = 8
 export function headParts(p: StageProps, W: number): HeadLayout {
   const run = p.runs.find(r => r.id === p.selected)
   const t = totals(p.runs)
-  const part = (key: string, w: Part, width: number, alt: string, animated: boolean): HeadPart =>
-    ({ key, source: svgDoc(width, w.h, w.svg), width, height: w.h, alt, animated })
+  const part = (key: string, w: Part, width: number, alt: string): HeadPart =>
+    ({ key, source: svgDoc(width, w.h, w.svg), width, height: w.h, alt })
   const out: HeadLayout = []
-  out.push(part('hd-top', header(p, W), W, `ModStage: ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}`, true))
+  out.push(part('hd-top', header(p, W), W, `ModStage: ${p.runs.length} run${p.runs.length === 1 ? '' : 's'}`))
   const note = notice(p, W)
-  if (note) out.push(part('hd-note', note, W, `Bridge problem: ${p.problem}`, false))
-  out.push(part('hd-tiles', tiles(p, W), W, `${t.working} working, ${t.waiting} waiting on you, ${t.finished} finished`, true))
+  if (note) out.push(part('hd-note', note, W, `Bridge problem: ${p.problem}`))
+  out.push(part('hd-tiles', tiles(p, W), W, `${t.working} working, ${t.waiting} waiting on you, ${t.finished} finished`))
   if (run) {
     const waiting = run.pending?.length ?? 0
     const compact = W < 360
     const rw = compact ? 60 : 76
     const info = infoCard(p, run, W - rw - RUN_GAP)
     out.push([
-      part('hd-mark', robotTile(run, waiting, rw, info.h), rw, `${run.name ?? run.engine} is ${run.status}`, true),
-      part('hd-run', info, W - rw - RUN_GAP, `${run.name ?? run.engine}, ${run.label}, ${run.status}`, true),
+      part('hd-mark', robotTile(run, waiting, rw, info.h), rw, `${run.name ?? run.engine} is ${run.status}`),
+      part('hd-run', info, W - rw - RUN_GAP, `${run.name ?? run.engine}, ${run.label}, ${run.status}`),
     ])
   }
   return out
