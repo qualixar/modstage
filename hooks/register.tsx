@@ -175,6 +175,7 @@ let beat = 0
 let stopTimer: (() => void) | null = null
 // the pane scrolls to its end after a draw that added output, while the person is following it
 let wantEnd = false
+let lastOffset = 0 // where the person last left the pane, to tell a scroll up from a scroll down
 let lastGrowth = ''
 
 const isClaude = (id: string) => id.startsWith('claude:')
@@ -219,8 +220,8 @@ async function trackClaude($: any, agentId: string, model: string | null,
 
 /** Message a Claude subagent: SendMessage's own route, so a finished one continues. */
 async function messageClaude($: any, id: string, body: string): Promise<void> {
+  await $.session.send({ to: { agentId: id }, text: body })   // a send that fails shows no message in the transcript
   await push($, id, 'you', body)
-  await $.session.send({ to: { agentId: id }, text: body })
   await update($, claudeRuns, (list: RunSummary[]) =>
     list.map(r => (r.id === id ? { ...r, status: 'running', activity: 'working' } : r)))
 }
@@ -377,6 +378,15 @@ async function select($: any, id: string): Promise<void> {
 async function perform($: any, a: Action | NativeAction): Promise<void> {
   const slot = pressKey(a as any)
   if (!slot) { await performAction($, a); return }
+  // synchronously, before any await: Enter pressed twice quickly (it never goes through a button) must run the action once
+  if (inFlight.has(slot)) return
+  inFlight.add(slot)
+  try { await performPressed($, a, slot) } finally { inFlight.delete(slot) }
+}
+
+const inFlight = new Set<string>()
+
+async function performPressed($: any, a: Action | NativeAction, slot: string): Promise<void> {
   if (slot in (((await read($, pressed).catch(() => ({}))) as Record<string, string>))) return
   const t0 = Date.now()
   const asked = a.type === 'decide' ? ((await read($, inbox).catch(() => [])) as Pending[]).find(p => p.id === (a as any).approvalId) : undefined
@@ -418,6 +428,8 @@ async function performAction($: any, a: Action | NativeAction): Promise<boolean 
         await call($, 'POST', `/runs/${a.runId}/decide`,
           { approval_id: a.approvalId, choice: a.choice, by: 'panel' }); break
       case 'pickAgent':
+        wantEnd = false // the person is at the launcher, not at the end of the transcript: never pull the pane away
+        await update($, following, () => false)
         await update($, launchModel, () => '')
         await update($, launchEffort, () => '')
         await update($, launchAgent, () => a.engine); return
@@ -1047,7 +1059,12 @@ export const register: Register = on => {
   // The person scrolled the pane: follow new output only while the window sits at its end.
   on('ui.scroll', { requestId: PANE } as any, async ($, e: any, next) => {
     if (e.origin?.kind === 'person') {
-      await update($, following, () => followsLatest(e.offset, e.bodyRows, e.contentRows))
+      // any scroll up, or any rest short of the very end, ends following at once and cancels a pending snap to the end
+      const up = typeof e.offset === 'number' && e.offset < lastOffset
+      lastOffset = typeof e.offset === 'number' ? e.offset : lastOffset
+      const at = !up && followsLatest(e.offset, e.bodyRows, e.contentRows)
+      if (!at) wantEnd = false
+      await update($, following, () => at)
     }
     return next(e)
   })
@@ -1081,8 +1098,9 @@ export const register: Register = on => {
       canType,
     }
     const run = allRuns.find(r => r.id === sel)
-    const px = els.Svg && (e as any).surface !== 'terminal' ? widthFor(((e.props as any).bodyColumns || 0) - 2) : undefined
-    const look = { desktop: !!px, px: px ? px - 24 : 0 } // inside a card's border and padding
+    const cols = Number((e.props as any).bodyColumns)
+    const px = els.Svg && (e as any).surface !== 'terminal' ? widthFor(cols > 2 ? cols - 2 : undefined) : undefined
+    const look = { desktop: !!px, px: px ?? 0 } // a card's inside is about as wide as the head: the pane less its border and padding
     const pressedNow = (await read($, pressed)) as Record<string, 'busy' | 'done'>
     const inboxEl = drawInbox(els, pending, colours, act, pressedNow, (await read($, answered)) as Answered, look)
     const launcherEl = (

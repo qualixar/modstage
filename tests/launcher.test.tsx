@@ -101,3 +101,18 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await ui.unmount()
   })
 }
+
+test('on the desktop every agent is a robot over a button with its name, and nothing in the card is framed', async ($, on) => {
+  mock.env(on, { HOME: '/home/test' })
+  const posted: any[] = []
+  fakeBridge(on, posted)
+  await $.tool.call({ tool: 'mcp__modstage__stage_agents' } as any)
+  const ui: any = await $.ui.mount({ plugin: 'modstage', surface: 'desktop', component: 'Pane', requestId: 'modstage', props: {} as any, viewport: { columns: 120, rows: 40 } })
+  const alts = ((await ui.findAll({ type: 'Svg' })) as any[]).map(x => x.props.alt as string)
+  for (const name of ['Codex', 'Grok']) expect(alts).toContain(name)
+  expect(alts).toContain('Kimi, not installed')
+  expect(alts.some(a => /^Start an agent/.test(a))).toBe(true)          // the card's title row
+  for (const x of (await ui.findAll({ type: 'Svg' })) as any[]) expect(x.props.isInteractive).toBeUndefined()
+  expect(await ui.find({ key: 'pick:codex' })).toBeTruthy()
+  await ui.unmount()
+})

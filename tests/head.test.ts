@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { ENGINE } from '../hooks/ui/palette.ts'
 import { headSvg, widthFor } from '../hooks/ui/head.ts'
-import { robot } from '../hooks/ui/vector.ts'
+import { robot, svgDoc } from '../hooks/ui/vector.ts'
 
 // Every agent has its own colour, the desktop head is one well-formed vector picture that fits its width whatever the
 // text in it, and the robot shows each state in its own way (18 Oct 2026: "every agent a different colour, robots more
@@ -76,12 +76,15 @@ test('the width follows the pane in cells, never below a readable minimum or pas
 test('the robot shows each state its own way, in the agent\'s colour, on one shared beat', () => {
   const c = ENGINE.codex!
   const w = robot(0, 0, c, 'working'), g = robot(0, 0, c, 'waiting'), i = robot(0, 0, c, 'idle'), e = robot(0, 0, c, 'ended'), f = robot(0, 0, c, 'failed')
-  expect(w).toContain('class="look"')
-  expect(g).toContain('#F5B93A')            // waiting on you: amber eyes
-  expect(i).toContain('class="blink"')
-  expect(e).not.toMatch(/class="(look|blink|flick)"/)
-  expect(f).toContain('class="flick"')
+  expect(w).toContain('class="look"')            // working: the eyes look about
+  expect(g).toContain('#F5B93A')                 // waiting on you: an amber ball
+  expect(i).toContain('class="blink"')           // idle: a blink
+  expect(e).not.toMatch(/class="(look|blink|flick)"/)   // ended: eyes closed, still
+  expect(f).toContain('class="flick"')           // failed: crossed eyes that flicker
   for (const m of [w, g, i, e, f]) expect(m).toContain(c)
+  expect(new Set([w, g, i, e, f]).size).toBe(5)
+  // one 2.4 s beat for every loop (the blink runs two beats), so marks that run together stay in step
+  expect(svgDoc(10, 10, '')).toMatch(/animation:lk 2\.4s[\s\S]*animation:bl 4\.8s/)
 })
 
 // ---- layout: nothing outside the picture, nothing drawn over a neighbour -------------------------------------------------
@@ -159,11 +162,16 @@ test('the layout checker itself sees an overlap and a text outside the picture',
   expect(boxes[2]!.x1).toBe(300)
 })
 
-test('the header carries ModStage\'s own logo, embedded, never loaded from anywhere', () => {
-  const { source } = headSvg(props([run('l1', 'codex', 'idle')], 'l1'), 500)
-  expect(source).toMatch(/<image href="data:image\/png;base64,[A-Za-z0-9+\/=]{2000,}"/)
-  expect(source).not.toMatch(/href="https?:/)
+
+test('the layout checker itself sees an overlap and a text outside the picture', () => {
+  const svg = '<svg><g transform="translate(10 0)"><text x="0" y="20" font-size="12" font-family="sans">hello world</text></g>' +
+    '<text x="40" y="22" font-size="12" font-family="sans">overlapping words</text><text x="300" y="60" font-size="12" font-family="sans" text-anchor="end">gone left</text></svg>'
+  const boxes = textBoxes(svg)
+  expect(boxes.length).toBe(3)
+  expect(Math.min(boxes[0]!.x1, boxes[1]!.x1) - Math.max(boxes[0]!.x0, boxes[1]!.x0)).toBeGreaterThan(1)
+  expect(boxes[2]!.x1).toBe(300)
 })
+
 
 // ---- animation: a picture that changes restarts its animation, so the animated ones must not change without cause ----------
 import { headParts } from '../hooks/ui/head.ts'
@@ -174,7 +182,7 @@ test('the robot picture does not change while only the numbers beside it do', ()
   const b = run('s1', 'codex', 'running', { elapsed_s: 77, usage: usage({ input: 5000, cost_usd: 1.5 }) })
   const mark = (r: any) => flat(props([r], 's1'), 700).find(x => x.key === 'hd-mark')!
   expect(mark(a).source).toBe(mark(b).source)
-  expect(mark(a).animated).toBe(true)
+  expect(mark(a).width).toBe(76)
 })
 
 test('the run card changes only when something worth showing changed (time moves in coarse steps)', () => {
@@ -190,4 +198,30 @@ test('the robot\'s picture is the agent\'s state and nothing else: another agent
   expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'muse', 'running')))
   expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'codex', 'error')))
   expect(m(run('x', 'codex', 'running'))).not.toBe(m(run('x', 'codex', 'running', { pending: [{ title: 'a' }] })))
+})
+
+test('the header carries ModStage\'s own logo, drawn as vector shapes (the engine does not draw an embedded bitmap)', () => {
+  const { source } = headSvg(props([run('l1', 'codex', 'idle')], 'l1'), 500)
+  expect(source).toContain('id="lgc"')                       // the logo's clip
+  for (const c of ['#C28AE9', '#6A9CF8', '#DEAB60', '#E47756']) expect(source).toContain(c)   // its four robots
+  expect(source).not.toMatch(/<image\b/)
+  expect(source).not.toMatch(/href="/)
+})
+
+import { agentFace } from '../hooks/ui/vector.ts'
+test('the picker\'s robot for an agent depends on its colour, whether it is picked and whether it is installed, and nothing else', () => {
+  const c = ENGINE.codex!
+  expect(agentFace(c, false, true).source).toBe(agentFace(c, false, true).source)
+  expect(agentFace(c, true, true).source).not.toBe(agentFace(c, false, true).source)
+  expect(agentFace(c, false, false).source).not.toBe(agentFace(c, false, true).source)
+  expect(agentFace(ENGINE.muse!, false, true).source).not.toBe(agentFace(c, false, true).source)
+  expect(agentFace(c, false, false).source).not.toContain(c)              // not installed: grey, never the agent's colour
+})
+
+import { pill, bar, sectionHead } from '../hooks/ui/vector.ts'
+test('an agent colour that is not a plain hex value never reaches any picture (it comes from a user\'s config file)', () => {
+  const evil = '#fff"/><image href="https://x/y.png"/><rect fill="#000'
+  const all = [robot(0, 0, evil, 'idle'), agentFace(evil, true, true).source, pill(0, 0, 'x', evil, { dot: true }).svg,
+    bar(0, 0, 50, 8, 0.5, evil), sectionHead(300, { title: 'T', colour: evil, icon: 'robot' }).source]
+  for (const m of all) { expect(m).not.toContain('<image'); expect(m).not.toContain('x/y.png') }
 })

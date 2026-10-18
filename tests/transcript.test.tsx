@@ -53,6 +53,6 @@ for (const surface of ['desktop', 'terminal'] as const) {
 test('the pane follows new output only while the window sits at its end', () => {
   expect(followsLatest(0, 40, 30)).toBe(true)     // everything fits
   expect(followsLatest(60, 40, 100)).toBe(true)   // at the end
-  expect(followsLatest(59, 40, 100)).toBe(true)   // one row short still counts as the end
+  expect(followsLatest(59, 40, 100)).toBe(false)  // one row up (one wheel notch) is already scrolled up: it must not be undone
   expect(followsLatest(20, 40, 100)).toBe(false)  // scrolled up
 })

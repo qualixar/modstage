@@ -16,10 +16,11 @@ export const PAGE = 120
 /** The key a row's expanded state is stored under: unique across runs. */
 export const rowKey = (runId: string, seq: number) => `${runId}:${seq}`
 
-/** Follow-latest rule: the window follows new output only while the person has not scrolled up.
+/** Follow-latest rule: the window follows new output only while it sits exactly at the end (one row up is already "scrolled up":
+ *  a mouse-wheel notch is one row, and it must not be undone by the next poll).
  *  `offset` is the first row the window will show, `bodyRows` how many it shows, `contentRows` how many exist. */
 export function followsLatest(offset: number, bodyRows: number, contentRows: number): boolean {
-  return contentRows <= bodyRows || offset + bodyRows >= contentRows - 1
+  return contentRows <= bodyRows || offset + bodyRows >= contentRows
 }
 
 const lines = (s: string | undefined) => (s ?? '').split('\n').map(l => l.replace(/\s+$/, '')).filter((l, i, a) => l || (i > 0 && i < a.length - 1))

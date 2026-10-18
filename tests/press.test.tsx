@@ -123,11 +123,20 @@ test('a message the bridge took empties its box; one it refused stays in the box
   await ui.input({ key: 'say:r0', text: 'hello there' })                   // Enter: the bridge takes it
   await b.clock.advance(2000)
   expect(b.sent?.[0]).toMatchObject({ text: 'hello there' })
-  expect(await valueOf()).toBeUndefined()                                   // sent: the box is empty again
+  expect(await valueOf()).toBe('')                                          // sent: the box is empty again
   b.failSend = true                                                         // the bridge refuses the next send
   await ui.input({ key: 'say:r0', text: 'try again', kind: 'change' })
   await ui.input({ key: 'say:r0', text: 'try again' })
   await b.clock.advance(2000)
   expect(await valueOf()).toBe('try again')                                 // not sent, not lost
+  await ui.unmount()
+})
+
+test('Enter pressed twice at once sends the message once', async ($, on) => {
+  const b = bridgeWith([])
+  const ui: any = await panel($, on, b)
+  await Promise.all([ui.input({ key: 'say:r0', text: 'only once' }), ui.input({ key: 'say:r0', text: 'only once' })])
+  await b.clock.advance(2000)
+  expect(b.sent?.length).toBe(1)
   await ui.unmount()
 })
