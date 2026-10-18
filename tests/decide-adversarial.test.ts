@@ -224,3 +224,43 @@ test('control: non-user origins never read the inbox', async ($, on) => {
   for (const kind of ['peer', 'plugin', 'task-notification']) await userSays($, 'allow the pip install', kind)
   expect(b.inboxCalls ?? 0).toBe(0)
 })
+
+// ---- round 3 of the adversarial review ----
+
+test('R3-A a grammar word inside the object cannot turn "once" into "for the run"', async ($, on) => {
+  for (const said of ['allow it once for the run', 'allow just this once for the run', 'approve it just once for this run', 'allow this once for the session'])
+    expect(decisionIn(said), said).toBe('')
+  const b = sole('a1', 'run `pip install x`')
+  fakeBridge(on, b)
+  await userSays($, 'allow it once for the run')
+  await decide($, { run_id: 'r1', choice: 'allow_session' })
+  await decide($, { run_id: 'r1', choice: 'allow' })
+  expect(b.decided).toEqual([])
+})
+
+// a real name plus anything else is not an answer to that approval
+for (const said of ['allow codex nah', 'allow pip install jk', 'allow codex nevermind', 'allow codex wait', 'allow the pip install later',
+  'allow codex with sudo', 'allow codex delete everything', 'allow codex my foot', 'allow the pip install tomorrow']) {
+  test(`R3-B "${said}" binds to nothing`, async ($, on) => {
+    const b = sole('a1', 'run `pip install x`')
+    b.runs.r1.pending[0].engine = 'codex'
+    fakeBridge(on, b)
+    await userSays($, said)
+    await decide($, { run_id: 'r1', choice: 'allow' })
+    expect(b.decided).toEqual([])
+  })
+}
+
+test('R3 naming an approval still works, by its action, engine, run or id, and with a run word in the object', async ($, on) => {
+  expect(decisionIn('allow the npm test run')).toBe('allow')
+  const w = [{ id: 'a1', run_id: 'r1', engine: 'codex', title: 'run `pip install x`' }, { id: 'a2', run_id: 'r2', engine: 'muse', title: 'run `npm test run`' }]
+  expect(boundTo('allow codex', w)).toBe('a1')
+  expect(boundTo('allow muse', w)).toBe('a2')
+  expect(boundTo('allow pip install', w)).toBe('a1')
+  expect(boundTo('allow the npm test run', w)).toBe('a2')
+  expect(boundTo('allow r2', w)).toBe('a2')
+  expect(boundTo('allow a1', w)).toBe('a1')
+  expect(boundTo('allow codex install', w)).toBe('a1')   // both words belong to a1
+  expect(boundTo('allow codex npm', w)).toBe('')           // words from two approvals: ambiguous
+  expect(boundTo('allow it', w)).toBe('')                  // two waiting, nothing named
+})

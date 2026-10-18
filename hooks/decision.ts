@@ -11,10 +11,19 @@ export type Decision = '' | 'allow' | 'allow_session' | 'deny'
 
 const clean = (t: string) => t.toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9'` _-]+/g, ' ').replace(/\s+/g, ' ').trim()
 
+// every word the grammar itself uses: none of them names an approval, and none can be part of an object ("allow it once
+// for the run" must not read "it once" as an object and then become run-wide)
+const GRAMMAR = new Set(['allow', 'approve', 'accept', 'deny', 'reject', 'refuse', 'decline', 'block', 'cancel', 'stop',
+  'run', 'it', 'that', 'this', 'the', 'yes', 'yeah', 'yep', 'sure', 'no', 'nope', 'ok', 'okay', 'please', 'thanks', 'thank', 'you',
+  'for', 'rest', 'of', 'once', 'just', 'again', 'do', 'not', "don't", 'dont', 'always', 'time', 'every', 'from', 'now', 'on',
+  'whole', 'entire', 'session'])
+
 // words that turn a decision around or add a second one: never allowed inside a decision's object
-const NEG = "(?:not|never|no|nope|don't|dont|do|n't|nothing|none|neither|nor|nobody|cannot|can't|cant|won't|wont|shouldn't|shouldnt|wouldn't|wouldnt|couldn't|couldnt|without|hardly)"
+const NEG = "(?:not|never|no|nope|don't|dont|do|n't|nothing|none|neither|nor|nobody|cannot|can't|cant|won't|wont|shouldn't|shouldnt|wouldn't|wouldnt|couldn't|couldnt|without|hardly|nah|jk|nvm|nevermind|wait|kidding|later|maybe|perhaps)"
 const STOP = "(?:allow|approve|accept|deny|reject|refuse|decline|block|cancel|stop|proceed|but|then|and|or|also|except|unless|only|if|instead)"
-const WORD = `(?!(?:${NEG}|${STOP}|the|a|an)\\b)[a-z0-9'\`_-]+`
+// "run" stays usable inside an object ("allow the npm test run"); every other grammar word is not
+const GRAMMAR_WORDS = [...GRAMMAR].filter(w => w !== 'run').join('|')
+const WORD = `(?!(?:${NEG}|${STOP}|${GRAMMAR_WORDS}|the|a|an)\\b)[a-z0-9'\`_-]+`
 // an optional object: "it", "that", "this", or one to three plain words ("the pip install", "pip install", "codex")
 const OBJ = `(?: it| that| this| (?:the )?${WORD}(?: ${WORD}){0,2})?`
 const TAIL = '(?: please| thanks| thank you)?'
@@ -44,18 +53,16 @@ export function covers(said: Decision, choice: string): boolean {
   return choice === 'allow' && (said === 'allow' || said === 'allow_session')
 }
 
-// every word the grammar itself uses outside an object: none of them names an approval
-const GRAMMAR = new Set(['allow', 'approve', 'accept', 'deny', 'reject', 'refuse', 'decline', 'block', 'cancel', 'stop',
-  'run', 'it', 'that', 'this', 'the', 'yes', 'yeah', 'yep', 'sure', 'no', 'nope', 'ok', 'okay', 'please', 'thanks', 'thank', 'you',
-  'for', 'rest', 'of', 'once', 'just', 'again', 'do', 'not', "don't", 'dont', 'always', 'time', 'every', 'from', 'now', 'on',
-  'whole', 'entire', 'session'])
-
 /** Which waiting approval a decision message answers. A bare "allow it" answers the only one waiting; a message that
  *  names something must name THAT approval (by its action, engine, run or id), and only one. Otherwise none. */
 export function boundTo(text: string, waiting: Array<{ id: string; run_id?: string; engine?: string; title?: string }>): string {
   const said = new Set(clean(text).replace(/`/g, ' ').split(' ').filter(w => w && !GRAMMAR.has(w)))
   if (!said.size) return waiting.length === 1 ? waiting[0]!.id : ''
-  const named = waiting.filter(p => [p.id, p.run_id, p.engine, ...clean(String(p.title ?? '')).replace(/`/g, ' ').split(' ')]
-    .some(w => w && !GRAMMAR.has(w) && said.has(w)))
+  // EVERY word the message adds must belong to that approval: a real name plus anything else ("allow codex nah",
+  // "allow pip install jk", "allow codex with sudo") answers nothing
+  const named = waiting.filter(p => {
+    const own = new Set([p.id, p.run_id, p.engine, ...clean(String(p.title ?? '')).replace(/`/g, ' ').split(' ')].filter(Boolean) as string[])
+    return [...said].every(w => own.has(w))
+  })
   return named.length === 1 ? named[0]!.id : ''
 }
