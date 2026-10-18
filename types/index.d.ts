@@ -63,6 +63,8 @@ export type StageAgent = {
   installed: boolean
   version: string
   command: string
+  /** how to install the CLI when it is missing */
+  install?: string
   note: string
   /** models the CLI listed (capped); empty when it has no list command */
   models?: Array<{ id: string; label: string; variant?: string }>

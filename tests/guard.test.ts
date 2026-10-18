@@ -105,3 +105,14 @@ test("the bridge's token file and port are not used directly from Bash or Read",
   expect(String(read.deny ?? read.text)).toContain('stage_*')
   expect(ran).toBe(0)
 })
+
+test('a quoted pipe is not a command split, and `command -v` is a lookup', async ($, on) => {
+  let ran = 0
+  on('tool.call', { tool: 'Bash' }, () => { ran += 1; return { result: { stdout: '', stderr: '', interrupted: false } } as any })
+  const [g, m] = ['grok', 'muse']
+  const cmds = [`ls ~/.local/bin | grep -iE "${m}|${g}|agy|kimi"`, `command -v ${g}`, `for c in ${g} ${m}; do command -v $c; done`]
+  for (const command of cmds) await $.tool.call({ tool: 'Bash', command } as any)
+  expect(ran).toBe(cmds.length)
+  const res: any = await $.tool.call({ tool: 'Bash', command: `echo "a|b" && ${g} -p "x"` } as any)
+  expect(String(res.deny ?? res.text)).toContain('stage_start')
+})

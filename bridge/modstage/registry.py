@@ -48,6 +48,32 @@ BUILTIN: list[dict] = [
      "color": "#FAB387", "steer": "queue", "model_args": [], "model_via": "acp-config"},
 ]
 
+# How to get each CLI when it is missing: shown in the panel, by stage_agents and in the "not installed" error.
+# Each install URL or package was checked live on 18 Oct 2026 (scripts fetched; npm names resolved).
+INSTALL = {
+    "codex": "npm install -g @openai/codex",
+    "muse": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+    "grok": "curl -fsSL https://x.ai/cli/install.sh | bash",
+    "antigravity": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    "kimi": "see https://github.com/MoonshotAI/kimi-cli",
+    "qwen": "npm install -g @qwen-code/qwen-code",
+    "opencode": "npm install -g opencode-ai",
+}
+for _spec in BUILTIN:
+    _spec["install"] = INSTALL[_spec["id"]]
+
+
+def install_hint(spec: dict) -> str:
+    """One line telling a person how to install this agent's CLI (empty when unknown)."""
+    return spec.get("install") or ""
+
+
+def not_installed(spec: dict) -> str:
+    """The sentence shown when an agent's CLI is not on this machine."""
+    how = install_hint(spec)
+    return (f"{spec.get('name', spec['id'])} is not installed ({spec['command'][0]} not found on PATH). "
+            + (f"Install it: {how}. Then try again." if how else f"Install it and make sure `{spec['command'][0]}` is on PATH, then try again."))
+
 
 def load() -> dict[str, dict]:
     agents = {a["id"]: dict(a) for a in BUILTIN}
@@ -326,6 +352,7 @@ def doctor() -> dict:
                        "protocol": spec["protocol"], "steer": spec.get("steer", "queue"),
                        "installed": bool(exe), "path": exe or "", "version": version,
                        "command": " ".join(spec["command"]), "note": _approval_note(spec),
+                       "install": install_hint(spec),
                        "takes_model": bool(spec.get("model_args")) or spec["protocol"] == "codex-app-server"
                        or bool(spec.get("model_via")),
                        **_listing(spec["id"])})

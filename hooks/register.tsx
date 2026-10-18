@@ -7,7 +7,7 @@ import { agentLaunchedBy, touchesBridge } from './guard.ts'
 import { covers, decisionIn } from './decision.ts'
 import type { Json } from './bridge.ts'
 import { blankUsage, CLAUDE_COLOUR, describe, liveClaude, MAX_EVENTS, MAX_RUNS } from './claude-agents.ts'
-import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup } from './ui/native.tsx'
+import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, installLine } from './ui/native.tsx'
 import type { NativeAction } from './ui/native.tsx'
 import { bandRuns, drawStage, statusGlyph } from './ui/stage.tsx'
 import type { Action, StageProps } from './ui/stage.tsx'
@@ -434,6 +434,34 @@ const stageError = ($: any, e: any, next: any) => {
 const CHOICES = ['allow', 'allow_session', 'deny']
 const VERB: Record<string, string> = { allow: 'Allowed once', allow_session: 'Allowed for the rest of this run', deny: 'Denied' }
 
+// One user message answers one approval. Two stage_decide calls can overlap, so the check and the "spent" mark
+// happen as one step inside this queue, before anything is sent. The mark lives here, not in the atom: an atom
+// write is not seen by the very next read. A failed send gives the message back, but only while it is still the
+// one that was spent.
+let reserving: Promise<unknown> = Promise.resolve()
+let spentAt = 0
+const inQueue = <T,>(step: () => Promise<T>): Promise<T> => {
+  const run = reserving.then(step)
+  reserving = run.catch(() => undefined)
+  return run
+}
+
+/** Reserve the user's latest message for this decision: its timestamp when held, else why it cannot be used. */
+const reserveMessage = ($: any, askedAt: number, choice: string): Promise<number | string> => inQueue(async () => {
+  const said = (await read($, userPrompt)) as { at: number; decision: string; used: boolean }
+  if (said.at <= askedAt) return 'came before'
+  if (said.used || said.at === spentAt) return 'was already used for another decision about'
+  if (!covers(said.decision as any, choice as any)) return 'does not clearly say'
+  spentAt = said.at
+  await update($, userPrompt, (p: any) => ({ ...p, used: true }))
+  return said.at
+})
+
+const releaseMessage = ($: any, at: number) => inQueue(async () => {
+  if (spentAt === at) spentAt = 0
+  await update($, userPrompt, (p: any) => (p.at === at && p.used ? { ...p, used: false } : p))
+})
+
 /** stage_decide: pass the user's own decision from Claude chat to one waiting approval. */
 async function decideFromChat($: any, e: { run_id: string; approval_id?: string; choice: string }) {
   if (!CHOICES.includes(e.choice)) return { deny: `modstage: choice must be allow, allow_session or deny (got "${e.choice}")` }
@@ -445,15 +473,19 @@ async function decideFromChat($: any, e: { run_id: string; approval_id?: string;
   if (!pick) return text(`run ${e.run_id} has ${waiting.length} approvals waiting. Ask the user which one they mean, then call stage_decide with its approval_id:\n${describePending(waiting)}\nNothing was decided.`)
   // Mechanical guard: the user's own message, sent after this approval was raised, must state this decision.
   // Agent text, tool output and other sessions never count; one message answers one approval.
-  const said = (await read($, userPrompt)) as { at: number; decision: string; used: boolean }
-  if (said.at <= pick.asked_at || said.used || !covers(said.decision as any, e.choice)) {
+  const held = await reserveMessage($, pick.asked_at, e.choice)
+  if (typeof held === 'string') {
     const want = e.choice === 'deny' ? '"deny it"' : e.choice === 'allow_session' ? '"allow it for the rest of this run"' : '"allow it"'
-    return text(`modstage: not decided. The user's latest message ${said.at <= pick.asked_at ? 'came before' : said.used ? 'was already used for another decision about' : 'does not clearly say'} ` +
+    return text(`modstage: not decided. The user's latest message ${held} ` +
       `${e.choice === 'deny' ? 'to deny' : 'to allow'} "${oneLine(pick.title)}". Ask the user to say it in their own message (for example ${want}), ` +
       `then call stage_decide again. They can also answer in the ModStage panel. Nothing was decided.`)
   }
-  await call($, 'POST', `/runs/${e.run_id}/decide`, { approval_id: pick.id, choice: e.choice, by: 'claude' })
-  await update($, userPrompt, (p: any) => ({ ...p, used: true }))
+  try {
+    await call($, 'POST', `/runs/${e.run_id}/decide`, { approval_id: pick.id, choice: e.choice, by: 'claude' })
+  } catch (err) {
+    await releaseMessage($, held)
+    throw err
+  }
   await poll($)
   return text(`${VERB[e.choice]}: ${oneLine(pick.engine, 40)} may${e.choice === 'deny' ? ' not' : ''} ${oneLine(pick.title)}. Logged in the run's feed as decided by the user in Claude chat.`)
 }
@@ -771,7 +803,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__modstage__stage_agents' }, async $ => {
     const list = await refreshAgents($)
-    return text(list.map(a => `${a.id} · ${a.name} · ${a.installed ? a.version || 'installed' : 'NOT installed'} · ` +
+    return text(list.map(a => `${a.id} · ${a.name} · ${a.installed ? a.version || 'installed' : `NOT installed. ${installLine(a)}`} · ` +
       `${a.steer === 'native' ? 'steerable' : 'queued messages'}${a.note ? ` · ${a.note}` : ''}` +
       (a.takes_model ? `\n    model: default ${a.default_model || '(its own config)'}` +
         (a.models?.length ? `; also ${a.models.map(m => m.variant ? `${m.id} (or ${m.variant}: same model, your content may be used for product improvement)` : m.id).join(', ')}` : '; any id the CLI accepts') : '\n    model: fixed by its own config')
