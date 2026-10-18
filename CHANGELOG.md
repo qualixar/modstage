@@ -2,6 +2,13 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.19 - 2026-10-19
+
+### Fixed
+
+- **The band above the prompt respects the row budget.** Asked for in the listing review: the engine tells the band area how many rows it has (`maxRows`). With none, ModStage's band steps aside and every other mod's band stays; with one or two rows it draws one compact row (title, counts, Open) without a chip per run; with more it draws the full band. It always sits below the other mods' bands (0.0.15 stopped it from hiding them). Tests cover no room, little room, plenty of room, nothing downstream, and the survey passthrough, on the desktop and the terminal.
+- The run chips in the band use each agent's own colour.
+
 ## 0.0.18 - 2026-10-19
 
 ### Fixed
