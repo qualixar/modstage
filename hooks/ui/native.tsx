@@ -247,3 +247,14 @@ export function drawSetup(el: any, agents: StageAgent[]) {
     </Box>
   )
 }
+
+/** Rows the native parts (inbox, launcher, message box) take around the stage, a little on the high side.
+ *  The stage's Client gets a fixed height from this and the pane's own size, never from its own region:
+ *  a region that sizes its content while its content sizes the region shrinks on every approval card
+ *  and is unmounted by the engine after three size changes. */
+export function nativeRows(pending: number, agentCount: number, pickedAgent: boolean, hasRun: boolean): number {
+  const inbox = pending ? 4 + Math.min(4, pending) * 5 + (pending > 4 ? 1 : 0) : 0
+  const launcher = 5 + 2 * Math.ceil(Math.max(1, agentCount) / 3) + (pickedAgent ? 12 : 0)
+  const composer = hasRun ? 9 : 0
+  return inbox + launcher + composer + 3
+}
