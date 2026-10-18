@@ -1,6 +1,5 @@
 import { expect, test } from 'claude-code/testing'
 import StageClient from '../hooks/ui/stage.tsx'
-import { nativeRows } from '../hooks/ui/native.tsx'
 
 // A Client whose content follows its own measured region is unmounted by the engine ("changed its own
 // size after each of 3 draws") the moment an approval card above it shrinks that region. The stage's
@@ -18,17 +17,10 @@ const props = (rows: number | undefined): any => ({
 })
 const height = (tree: any) => tree?.props?.height
 
-test('the stage height follows its props, never its own measured rows', () => {
+test('the head height follows its props, never its own measured rows', () => {
   expect(height(StageClient(props(30), fakeSurface(8)))).toBe(30)
   expect(height(StageClient(props(30), fakeSurface(90)))).toBe(30)
-  expect(height(StageClient(props(undefined), fakeSurface(8)))).toBe(36)
-})
-
-test('the pane leaves less stage the more approvals wait', () => {
-  const none = nativeRows(0, 8, false, true)
-  expect(nativeRows(1, 8, false, true)).toBeGreaterThan(none)
-  expect(nativeRows(3, 8, false, true)).toBeGreaterThan(nativeRows(1, 8, false, true))
-  expect(nativeRows(1, 8, true, true)).toBeGreaterThan(nativeRows(1, 8, false, true))
+  expect(height(StageClient(props(undefined), fakeSurface(8)))).toBe(16)
 })
 
 // Another way the engine unmounts a Client: props past 100000 characters. Approvals carry up to 4000

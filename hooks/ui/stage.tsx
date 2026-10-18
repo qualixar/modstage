@@ -1,3 +1,5 @@
+import { drawTranscript, FIRST_PAGE } from './transcript.tsx'
+
 // ModStage view: one drawing function used two ways.
 //  - As a Client surface module (default export): it owns a frame clock and animates locally.
 //  - From the hooks module's own ui.render (drawStage): animated by a hooks-side tick, for surfaces without Client.
@@ -136,19 +138,20 @@ function robot(Text: any, colour: string, status: string, tick: number) {
 
 const elapsed = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`)
 
-/** Draws the whole stage. `tick` advances ~12 times a second; `seenAt` maps event seq → tick first drawn. */
 export type Fit = { maxLines: number; composer: boolean }
 
-export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<number, number>, act: (a: Action) => void, fit: Fit = { maxLines: 30, composer: true }) {
-  const { Box, Text, Button } = el
-  const Input = el.Input
+/** Rows the animated head (title bar, then the robot card) is drawn into: a fixed number, so what the
+ *  Client draws can never change the size of its own region. */
+export const HEAD_ROWS = 16
+export const HEAD_ROWS_NO_RUN = 4
+
+function drawHeader(el: any, p: StageProps, tick: number) {
+  const { Box, Text } = el
   const anyRunning = p.runs.some(r => r.status === 'running' || r.status === 'starting')
   const spin = SPIN[tick % SPIN.length]
-  const run = p.runs.find(r => r.id === p.selected)
   const pulse = tick % 12 < 6
   const live = p.age >= 0 && p.age <= 3
-
-  const header = (
+  return (
     <Box key="hdr" borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="row" justifyContent="space-between">
       <Text>
         <Text color={ACCENT} bold>{anyRunning ? spin : '✻'} </Text>
@@ -168,15 +171,18 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
       </Text>
     </Box>
   )
+}
 
-  // Tabs: one per run, the engine's colour, a spinner while it works. The selected tab is filled.
-  const tabs = (
+/** Tabs: one per run, the engine's colour, a spinner while it works. The selected tab is filled. */
+export function drawTabs(el: any, p: StageProps, tick: number, act: (a: Action) => void) {
+  const { Box, Text, Button } = el
+  const spin = SPIN[tick % SPIN.length]
+  return (
     <Box key="tabs" flexDirection="row" flexWrap="wrap" columnGap={1} paddingX={1}>
       {p.runs.length === 0
         ? <Text dimColor>No runs yet. Start one with "Start an agent", or ask Claude to hand a task to any installed agent.</Text>
         : p.runs.map(r => {
             const on = r.id === p.selected
-            const running = r.status === 'running' || r.status === 'starting'
             const glyph = statusGlyph(r.status, spin)
             const c = r.color ?? ENGINE[r.engine] ?? '#CDD6F4'
             return (
@@ -191,116 +197,89 @@ export function drawStage(el: any, p: StageProps, tick: number, seenAt: Record<n
           })}
     </Box>
   )
+}
 
-  if (!run) return <Box flexDirection="column" gap={1}>{header}{p.problem ? <Text color="#F7768E">  bridge: {p.problem}</Text> : null}{tabs}</Box>
-
+/** The selected run's card: robot, status, badges, path, context and token use. No transcript. */
+function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
+  const { Box, Text } = el
+  const spin = SPIN[tick % SPIN.length]
   const colour = run.color ?? ENGINE[run.engine] ?? '#CDD6F4'
   const running = run.status === 'running' || run.status === 'starting'
-  const newest = p.feed.length ? p.feed[p.feed.length - 1]!.seq : 0
-  // one row per event and a fixed budget, so the view never outgrows the pane and never jumps
-  const lines = p.feed.slice(-Math.max(3, fit.maxLines)).map(ev => {
-    const age = tick - (seenAt[ev.seq] ?? tick)
-    const fresh = age < 10
-    const first = (ev.text.split('\n')[0] ?? '')
-    // typewriter: the newest message reveals over a few frames
-    const shown = ev.seq === newest && ev.kind === 'message' && age < 40 ? first.slice(0, Math.max(1, age * 8)) : first
-    const out = ev.detail ? (ev.detail.split('\n').filter(Boolean).slice(-1)[0] ?? '') : ''
-    switch (ev.kind) {
-      case 'you':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end"><Text color={ACCENT} bold>&gt; </Text><Text color="#F5E0DC">{first}</Text></Text>
-      case 'tool':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end"><Text color={fresh ? ACCENT : colour}>⏺ </Text><Text bold={fresh}>{first}</Text></Text>
-      case 'result':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end" dimColor>  ⎿  {first}{out ? ` · ${out.slice(0, 120)}` : ''}</Text>
-      case 'edit':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end"><Text color="#9ECE6A">⏺ </Text><Text color="#9ECE6A">{first}</Text></Text>
-      case 'message':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end"><Text color="#CDD6F4">⏺ </Text><Text color="#CDD6F4">{shown}</Text></Text>
-      case 'thinking':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end" dimColor italic>  ✻ {first}</Text>
-      case 'plan':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end"><Text color="#E0AF68">☰ </Text><Text dimColor>{ev.text.replace(/\n/g, '  ').slice(0, 300)}</Text></Text>
-      case 'error':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end" color="#F7768E">✗ {first}</Text>
-      case 'warning':
-        return <Text key={`e${ev.seq}`} wrap="truncate-end" color="#E0AF68">! {first}</Text>
-      default:
-        return <Text key={`e${ev.seq}`} wrap="truncate-end" dimColor>· {first}</Text>
-    }
-  })
-
-  // "Thinking…" shimmer while the agent works and has nothing streaming yet
-  const word = `${run.activity.charAt(0).toUpperCase()}${run.activity.slice(1)}…`.slice(0, 60)
-  const shimmer = running && !p.partial ? (
-    <Text key="shim">
-      <Text color={ACCENT}>{spin} </Text>
-      {word.split('').map((ch, i) => <Text key={`s${i}`} color={SHIMMER[(i - tick + 600) % SHIMMER.length]}>{ch}</Text>)}
-      <Text dimColor>  {elapsed(run.elapsed_s)}</Text>
-    </Text>
-  ) : null
-  const streaming = running && p.partial
-    ? <Text key="stream" wrap="truncate-end"><Text color={ACCENT}>{spin} </Text><Text color="#CDD6F4">{p.partial.split('\n').filter(Boolean).slice(-1)[0] ?? ''}</Text><Text color={pulse ? ACCENT : '#2A2D3A'}>▍</Text></Text>
-    : null
-
   const c = pct(run)
-  const detail = (
-    <Box key="detail" borderStyle="round" borderColor={colour} paddingX={1} flexDirection="column">
-      <Box flexDirection="row" columnGap={2}>
-        <Box flexDirection="column" width={11} minWidth={11} flexShrink={0}>{robot(Text, colour, run.status, tick)}</Box>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-          <Box flexDirection="row" justifyContent="space-between">
-            <Text>
-              <Text color={colour} bold>{run.engine}</Text>
-              <Text dimColor> {run.model ?? ''} · {run.id}</Text>
-            </Text>
-            <Text color={STATUS[run.status] ?? '#A6ADC8'}>{running ? spin : '●'} {run.status} · {elapsed(run.elapsed_s)}</Text>
-          </Box>
-          <Text bold wrap="truncate-end">{run.label}</Text>
-          <Text wrap="truncate-end">
-            <Text backgroundColor="#313244" color={colour}> {run.steer === 'native' ? '⇄ steerable' : run.steer === 'watch' ? '◉ watch only' : '⇢ queued msgs'} </Text>
-            <Text> </Text>
-            <Text backgroundColor="#313244" color={run.autonomy === 'auto' ? '#F7768E' : '#9ECE6A'}> {run.autonomy === 'auto' ? '⚡ autonomous' : run.steer === 'watch' ? '✻ claude' : run.engine === 'antigravity' ? '◆ read-only' : '◆ asks first'} </Text>
-            {run.pending && run.pending.length ? <Text color="#E0AF68" bold>  ⚑ {run.pending.length} waiting on you</Text> : null}
-            {run.stuck ? <Text color="#F7768E" bold>  ⏸ quiet {Math.round((run.quiet_s ?? 0) / 60)}m</Text>
-              : running && (run.quiet_s ?? 0) >= 45 ? <Text dimColor>  · no new output for {(run.quiet_s ?? 0) < 120 ? `${run.quiet_s}s` : `${Math.round((run.quiet_s ?? 0) / 60)}m`}, still running</Text> : null}
-          </Text>
-          {run.blocked ? <Text color="#F7768E" wrap="truncate-end">⛔ blocked: {run.blocked}</Text>
-            : run.approval_note ? <Text color="#E0AF68" wrap="truncate-end">⚠ {run.approval_note}</Text> : null}
-          <Text dimColor wrap="truncate-middle">{shortPath(run.cwd, p.home)}</Text>
-          <Text wrap="truncate-end">
-            <Text dimColor>context </Text><Text color={c != null && c > 80 ? '#F7768E' : colour}>{bar(c, 12)}</Text>
-            <Text dimColor> {c == null ? '' : `${c}% · `}{kTok(run.usage.context_used)}/{kTok(run.usage.context_window)}</Text>
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            in {kTok(run.usage.input)} ({kTok(run.usage.cached)} cached) · out {kTok(run.usage.output)}
-            {run.usage.cost_usd != null ? `  ·  ≈$${run.usage.cost_usd.toFixed(2)} at API price` : ''}
-          </Text>
-        </Box>
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        {lines}
-        {shimmer}
-        {streaming}
-      </Box>
-    </Box>
-  )
-
   return (
-    <Box flexDirection="column" rowGap={1}>
-      {header}
-      {p.problem ? <Text color="#F7768E">  bridge: {p.problem}</Text> : null}
-      {tabs}
-      {detail}
+    <Box key="detail" borderStyle="round" borderColor={colour} paddingX={1} flexDirection="row" columnGap={2}>
+      <Box flexDirection="column" width={11} minWidth={11} flexShrink={0}>{robot(Text, colour, run.status, tick)}</Box>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text>
+            <Text color={colour} bold>{run.engine}</Text>
+            <Text dimColor> {run.model ?? ''} · {run.id}</Text>
+          </Text>
+          <Text color={STATUS[run.status] ?? '#A6ADC8'}>{running ? spin : '●'} {run.status} · {elapsed(run.elapsed_s)}</Text>
+        </Box>
+        <Text bold wrap="truncate-end">{run.label}</Text>
+        <Text wrap="truncate-end">
+          <Text backgroundColor="#313244" color={colour}> {run.steer === 'native' ? '⇄ steerable' : run.steer === 'watch' ? '◉ watch only' : '⇢ queued msgs'} </Text>
+          <Text> </Text>
+          <Text backgroundColor="#313244" color={run.autonomy === 'auto' ? '#F7768E' : '#9ECE6A'}> {run.autonomy === 'auto' ? '⚡ autonomous' : run.steer === 'watch' ? '✻ claude' : run.engine === 'antigravity' ? '◆ read-only' : '◆ asks first'} </Text>
+          {run.pending && run.pending.length ? <Text color="#E0AF68" bold>  ⚑ {run.pending.length} waiting on you</Text> : null}
+          {run.stuck ? <Text color="#F7768E" bold>  ⏸ quiet {Math.round((run.quiet_s ?? 0) / 60)}m</Text>
+            : running && (run.quiet_s ?? 0) >= 45 ? <Text dimColor>  · no new output for {(run.quiet_s ?? 0) < 120 ? `${run.quiet_s}s` : `${Math.round((run.quiet_s ?? 0) / 60)}m`}, still running</Text> : null}
+        </Text>
+        {run.blocked ? <Text color="#F7768E" wrap="truncate-end">⛔ blocked: {run.blocked}</Text>
+          : run.approval_note ? <Text color="#E0AF68" wrap="truncate-end">⚠ {run.approval_note}</Text> : null}
+        <Text dimColor wrap="truncate-middle">{shortPath(run.cwd, p.home)}</Text>
+        <Text wrap="truncate-end">
+          <Text dimColor>context </Text><Text color={c != null && c > 80 ? '#F7768E' : colour}>{bar(c, 12)}</Text>
+          <Text dimColor> {c == null ? '' : `${c}% · `}{kTok(run.usage.context_used)}/{kTok(run.usage.context_window)}</Text>
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          in {kTok(run.usage.input)} ({kTok(run.usage.cached)} cached) · out {kTok(run.usage.output)}
+          {run.usage.cost_usd != null ? `  ·  ≈$${run.usage.cost_usd.toFixed(2)} at API price` : ''}
+        </Text>
+      </Box>
     </Box>
   )
 }
 
-// Per-instance bookkeeping lives outside `surface.state`: drawing must never call setState
-// (three draws in a row that set state count as a render loop and the engine unmounts the instance).
-const started = new WeakSet<object>()
-const seenBy = new WeakMap<object, Record<number, number>>()
+/** The animated head: title bar, a bridge problem line, and the selected run's card. Fixed in size by
+ *  the caller (HEAD_ROWS), so drawing it in a Client or in the pane body gives the same picture. */
+export function drawHead(el: any, p: StageProps, tick: number) {
+  const { Box, Text } = el
+  const run = p.runs.find(r => r.id === p.selected)
+  return (
+    <Box key="head" flexDirection="column">
+      {drawHeader(el, p, tick)}
+      {p.problem ? <Text color="#F7768E">  bridge: {p.problem}</Text> : null}
+      {run ? drawCard(el, p, run, tick) : null}
+    </Box>
+  )
+}
 
-/** The Client surface module: a 100 ms frame clock drives the animation; actions go to the hooks module by post. */
+/** The whole stage in one tree (head, tabs, transcript). The pane composes these pieces itself so the
+ *  transcript can scroll; this is the same picture in one call, for tests and simple surfaces.
+ *  `seenAt` is unused now (the typewriter reveal went with the in-Client transcript) and kept for callers. */
+export function drawStage(el: any, p: StageProps, tick: number, _seenAt: Record<number, number>, act: (a: Action) => void,
+                          fit: Fit = { maxLines: FIRST_PAGE, composer: true }) {
+  const { Box } = el
+  const run = p.runs.find(r => r.id === p.selected)
+  return (
+    <Box flexDirection="column" rowGap={1}>
+      {drawHead(el, p, tick)}
+      {drawTabs(el, p, tick, act)}
+      {run ? drawTranscript(el, {
+        run, feed: p.feed, partial: p.partial, open: new Set<string>(), shown: Math.max(3, fit.maxLines),
+        colour: run.color ?? ENGINE[run.engine] ?? '#CDD6F4', spin: SPIN[tick % SPIN.length]!,
+      }, () => {}) : null}
+    </Box>
+  )
+}
+
+/** The Client surface module: a 100 ms frame clock animates the head; its size comes from its props and
+ *  never from its own measured region (a region that sizes its content while its content sizes the region
+ *  is unmounted by the engine). The transcript is not drawn here: the pane body draws it so it scrolls. */
+const started = new WeakSet<object>()
+
 export default function StageClient(props: any, surface: any) {
   const p = props as StageProps
   if (!started.has(surface)) {
@@ -309,18 +288,11 @@ export default function StageClient(props: any, surface: any) {
     surface.every(100, () => surface.setState({ tick: ++n }))
   }
   const tick: number = (surface.state as { tick?: number } | undefined)?.tick ?? 0
-  let seenAt = seenBy.get(surface)
-  if (!seenAt) seenBy.set(surface, (seenAt = {}))
-  for (const ev of p.feed ?? []) if (seenAt[ev.seq] === undefined) seenAt[ev.seq] = tick
-  // The region's height comes from the hooks module, never from surface.rows: a Client whose content
-  // follows its own measured region changes that region on every redraw, and the engine unmounts it.
-  // header 3 + tabs 1 + card chrome 10 + spacing 3 + live line 1 = 18 rows that are not transcript
-  const rows = Math.max(12, Math.round(p.rows ?? 36))
-  const maxLines = Math.max(4, rows - 18)
+  const rows = Math.max(HEAD_ROWS_NO_RUN, Math.round(p.rows ?? HEAD_ROWS))
   const { Box } = surface.elements
   return (
-    <Box key="stage-fixed" flexDirection="column" height={rows} overflow="hidden">
-      {drawStage(surface.elements, p, tick, seenAt, a => surface.post(a), { maxLines, composer: false })}
+    <Box key="head-fixed" flexDirection="column" height={rows} overflow="hidden">
+      {drawHead(surface.elements, p, tick)}
     </Box>
   )
 }
