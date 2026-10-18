@@ -29,8 +29,9 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await $.tool.call({ tool: 'mcp__modstage__stage_start', engine: 'codex', prompt: 'x' } as any) // its poll fills the panel
     const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'modstage',
       props: {} as any, viewport: { columns: 120, rows: 30 } })
-    // the animated head is a Client: its module must load and draw
-    expect(await ui.drawn({ in: 'stage' })).toBeTruthy()
+    // the head: a vector picture on the desktop, an animated Client in the terminal (its module must load and draw)
+    if (surface === 'desktop') expect(await ui.find({ type: 'Svg' })).toBeTruthy()
+    else expect(await ui.drawn({ in: 'stage' })).toBeTruthy()
     // a message longer than the old 400-character cut is shown whole
     expect(await ui.find({ text: new RegExp(LONG.trim().slice(-60)) })).toBeTruthy()
     // the newest page holds 120 events: the oldest are behind "earlier"

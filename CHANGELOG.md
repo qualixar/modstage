@@ -2,6 +2,21 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.16 - 2026-10-19
+
+### Fixed
+
+- **The desktop head never ran text into a neighbour.** At the narrowest panes the header, the stat tiles and the run card now stack or shorten instead of overlapping; the bridge's problem line is shown on the desktop too; a custom agent's colour that is not a plain hex value is ignored instead of reaching the drawing. A test parses every drawn text at seven widths and fails on any overlap or overflow.
+
+### Changed
+
+- **A new look for the panel, built from soft cards.** On the desktop the head is now one vector picture sized to the pane: a header card (wordmark, live state, one aligned cell per agent that has runs), four stat tiles (working, needs you, finished, spend), and the selected run's card with the agent's mark, a state pill, chips, the folder, a context gauge and token and cost use. It animates with CSS alone, so the 10-frames-a-second redraw of the old head is gone on the desktop. The terminal keeps its text drawing and gets the same four tiles. Look and layout were shaped after the screens of claude-mods, claude-flightdeck and Control-Room-Mod (all MIT; credited in THIRD-PARTY-NOTICES.md).
+- **Every agent has its own colour,** and no two look alike: Claude coral, Codex blue, Muse violet, Grok amber, Antigravity teal, Kimi pink, Qwen green, OpenCode slate. The bridge and the panel use the same table, and tests fail if two agents ever come within reach of each other or the two tables drift apart.
+- **The robots are more mature.** A squared head with a visor, an antenna and a neck, in the agent's colour. Working: a light sweeps the visor. Waiting on you: amber eyes. Idle: eyes that blink. Ended: eyes closed. Failed: crossed eyes. Every loop shares one 2.4 s beat so they stay in step. The terminal has the same mark in text, 9 columns wide in every state (it used to change width as its arms swung).
+- **Everything lines up.** Inbox, launcher and message box are cards with one padding and a shared label column (agent, model, effort), so controls sit in the same columns. Needs-you comes first, then the head, then the launcher.
+- **A click is felt, and never overstated.** A pressed button says what it is doing (Allowing…, Starting…, Sending…, Interrupting…, Closing…) while the bridge has not answered, then what it did (✓ Allowed, ✓ Started, ✓ Sent…) for a moment, and ignores a second press meanwhile. An approval you answer leaves a confirming line (✓ Allowed, ✓ Allowed for this run, ✓ Denied) for 1.8 s after its card is gone. An action the bridge refused or that failed never shows a ✓: its button simply returns and the error shows as before. Found by an independent review before release, which showed the first version claiming "✓ Allowed" for an approval the bridge had refused.
+- **Stronger text boxes.** The task box and the message box are several lines tall and full width, with a Start and a Send button next to Enter, and a half-written message survives a redraw or a switch to another tab, is emptied only once the bridge has taken it (a send that fails keeps your text), and is dropped when the session ends. Pasted text stays whole. (Attaching an image is not possible from a mod's text box today; that needs a change in the engine's API or a path-based attach in the bridge.)
+
 ## 0.0.15 - 2026-10-18
 
 ### Fixed

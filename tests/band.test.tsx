@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { bandRuns, drawStage, engineDots, statusGlyph } from '../hooks/ui/stage.tsx'
+import { ENGINE } from '../hooks/ui/palette.ts'
 import { fakeBridge } from './fake-bridge.ts'
 import type { Bridge } from './fake-bridge.ts'
 
@@ -78,7 +79,7 @@ test('header dots come from the runs: one per agent, counted, working and ended 
   expect(dots.map(d => [d.engine, d.count, d.working, d.open])).toEqual([
     ['codex', 2, false, true], ['muse', 1, false, true], ['claude', 5, true, true], ['antigravity', 1, false, true],
   ])
-  expect(engineDots([run('x', 'kimi', 'done')])[0]).toMatchObject({ engine: 'kimi', open: false, colour: '#F5C2E7' })
+  expect(engineDots([run('x', 'kimi', 'done')])[0]).toMatchObject({ engine: 'kimi', open: false, colour: ENGINE.kimi })
   expect(engineDots([])).toEqual([])
 })
 

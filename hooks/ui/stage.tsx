@@ -1,4 +1,8 @@
 import { drawTranscript, FIRST_PAGE } from './transcript.tsx'
+import { ACCENT, ENGINE, STATUS, colourOf } from './palette.ts'
+import { autonomyLabel, elapsed, kTok, pct, shortPath, steerLabel, totals } from './format.ts'
+import { headSvg, widthFor } from './head.ts'
+import { engineDots, statusGlyph } from './runs.ts'
 
 // ModStage view: one drawing function used two ways.
 //  - As a Client surface module (default export): it owns a frame clock and animates locally.
@@ -9,36 +13,8 @@ export type Usage = {
   input: number; cached: number; output: number; reasoning: number
   context_used: number; context_window: number | null; cost_usd: number | null
 }
-/** One mark per run state, used by the panel tabs and the band above the prompt so they always agree.
- *  ✓ the turn finished and the run waits for Claude · ○ the run has ended · ✗ failed · ◼ interrupted.
- *  Running shows the caller's spinner frame (the band has no clock, so it passes a fixed ✻). */
-export function statusGlyph(status: string, spin = '✻'): string {
-  if (status === 'running' || status === 'starting') return spin
-  return status === 'idle' ? '✓' : status === 'error' ? '✗' : status === 'interrupted' ? '◼' : '○'
-}
-
-// The band has room for a few runs: the ones that need attention first, newest first within each group.
-const BAND_RANK: Record<string, number> = { running: 0, starting: 0, idle: 1, error: 2, interrupted: 3 }
-export function bandRuns<T extends { status: string }>(runs: T[], max = 5): { shown: T[]; hidden: number } {
-  const ranked = runs.map((r, i) => ({ r, i })).sort((a, b) =>
-    (BAND_RANK[a.r.status] ?? 4) - (BAND_RANK[b.r.status] ?? 4) || b.i - a.i)
-  return { shown: ranked.slice(0, max).map(x => x.r), hidden: Math.max(0, runs.length - max) }
-}
-
-/** The header's live dots: one per agent that has runs now, in first-run order, never a fixed list.
- *  ● pulsing = one of its runs is working · ● = waiting for Claude · ○ = all of its runs have ended. */
-export type EngineDot = { engine: string; colour: string; count: number; working: boolean; open: boolean }
-export function engineDots(runs: Array<{ engine: string; status: string; color?: string | null }>): EngineDot[] {
-  const dots = new Map<string, EngineDot>()
-  for (const r of runs) {
-    const d = dots.get(r.engine) ?? { engine: r.engine, colour: r.color ?? ENGINE[r.engine] ?? '#CDD6F4', count: 0, working: false, open: false }
-    d.count += 1
-    d.working ||= r.status === 'running' || r.status === 'starting'
-    d.open ||= statusGlyph(r.status) !== '○'
-    dots.set(r.engine, d)
-  }
-  return [...dots.values()]
-}
+export { statusGlyph, bandRuns, engineDots } from './runs.ts'
+export type { EngineDot } from './runs.ts'
 
 export type RunView = {
   id: string; engine: string; model: string | null; label: string; cwd: string
@@ -83,24 +59,9 @@ export function forClient(p: StageProps): StageProps {
   return out
 }
 
-const ACCENT = '#D97757' // Claude's coral
-// Fallback colours (the bridge sends each run's own colour from the registry; these match it)
-const ENGINE: Record<string, string> = {
-  codex: '#7AA2F7', muse: '#C792EA', grok: '#E0AF68', antigravity: '#8AB4F8', kimi: '#F5C2E7',
-  qwen: '#9ECE6A', opencode: '#FAB387', claude: '#D97757',
-}
-const STATUS: Record<string, string> = {
-  running: ACCENT, starting: ACCENT, idle: '#9ECE6A', done: '#7F849C', error: '#F7768E', interrupted: '#E0AF68',
-}
 const SPIN = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢']
 const SHIMMER = ['#7F849C', '#A6ADC8', '#CDD6F4', '#F5E0DC', '#CDD6F4', '#A6ADC8']
 const GRADIENT = ['#D97757', '#E08A5F', '#E0AF68', '#C9A0DC', '#C792EA', '#A9B1F5', '#7AA2F7', '#A9B1F5', '#C792EA', '#C9A0DC', '#E0AF68', '#E08A5F']
-
-const kTok = (n: number | null | undefined) =>
-  n == null ? '–' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(Math.round(n))
-
-const pct = (r: RunView) =>
-  r.usage.context_window ? Math.min(100, Math.round((100 * r.usage.context_used) / r.usage.context_window)) : null
 
 const bar = (percent: number | null, cells = 10) => {
   if (percent == null) return '▱'.repeat(cells)
@@ -108,33 +69,30 @@ const bar = (percent: number | null, cells = 10) => {
   return '▰'.repeat(full) + '▱'.repeat(cells - full)
 }
 
-const shortPath = (path: string, home: string) => {
-  const p = home && path.startsWith(home) ? '~' + path.slice(home.length) : path
-  return p.length > 56 ? p.slice(0, 20) + '…' + p.slice(-34) : p
-}
-
-/** A small robot, Claude Code-mascot style, 3 rows x 9 columns in monospace.
- *  Working: arms swing, eyes glance, antenna blinks. Idle: dozes (zZ). Error: x eyes. */
-function robot(Text: any, colour: string, status: string, tick: number) {
+/** The agent's mark in the terminal: a squared head with a visor, 3 rows x 9 columns. Working: a light sweeps the visor.
+ *  Waiting on you: both eyes lit amber. Idle: eyes that blink. Ended: eyes closed. Failed: crossed eyes. */
+function robot(Text: any, colour: string, status: string, tick: number, waiting = false) {
   const working = status === 'running' || status === 'starting'
   const failed = status === 'error'
-  const swing = Math.floor(tick / 4) % 2 === 0
-  const blink = tick % 40 < 2
-  const look = Math.floor(tick / 16) % 4
-  const eyes = failed ? 'x x' : !working ? '- -' : blink ? '- -' : look === 1 ? '◐ ◐' : look === 3 ? '◑ ◑' : '● ●'
-  const armL = working ? (swing ? '╲' : '╱') : ' '
-  const armR = working ? (swing ? '╱' : '╲') : ' '
-  const feet = working ? (swing ? '╰┘ └╯' : '╰┘╶└╯') : '╰┘ └╯'
-  const zz = !working && !failed ? ['  ', ' z', 'zZ', 'Z '][Math.floor(tick / 10) % 4] : '  '
-  const tip = working ? (Math.floor(tick / 3) % 2 === 0 ? '#F5E0DC' : ACCENT) : failed ? '#F7768E' : '#585B70'
+  const idle = status === 'idle'
+  const lit = failed ? '#F7768E' : waiting ? '#F5B93A' : colour
+  const blink = idle && tick % 48 < 2
+  let visor: string
+  if (working && !waiting) {
+    const span = 3 // the 2-cell light travels across cells 0..3 of the 5-cell visor and back
+    const step = Math.floor(tick / 3) % (span * 2)
+    const at = step <= span ? step : span * 2 - step
+    visor = ' '.repeat(at) + '▬▬' + ' '.repeat(span - at)
+  } else if (failed) visor = ' × × '
+  else if (working || idle) visor = blink ? ' ─ ─ ' : ' ● ● '
+  else visor = ' ─ ─ '
+  const tip = working ? (Math.floor(tick / 6) % 2 === 0 ? lit : '#585B70') : failed ? '#F7768E' : '#585B70'
   return [
-    <Text key="r0" wrap="truncate"><Text color={colour}>  ╭─</Text><Text color={tip}>●</Text><Text color={colour}>─╮</Text><Text dimColor>{zz}</Text></Text>,
-    <Text key="r1" wrap="truncate" color={colour}>{armL} │{eyes}│ {armR}</Text>,
-    <Text key="r2" wrap="truncate" color={colour}>  {feet}  </Text>,
+    <Text key="r0" wrap="truncate"><Text color={colour}> ╭──</Text><Text color={tip}>●</Text><Text color={colour}>──╮ </Text></Text>,
+    <Text key="r1" wrap="truncate"><Text color={colour}>▐│</Text><Text color={lit}>{visor}</Text><Text color={colour}>│▌</Text></Text>,
+    <Text key="r2" wrap="truncate" color={colour}> ╰─────╯ </Text>,
   ]
 }
-
-const elapsed = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`)
 
 export type Fit = { maxLines: number; composer: boolean }
 
@@ -177,7 +135,7 @@ export function drawTabs(el: any, p: StageProps, tick: number, act: (a: Action) 
         : p.runs.map(r => {
             const on = r.id === p.selected
             const glyph = statusGlyph(r.status, spin)
-            const c = r.color ?? ENGINE[r.engine] ?? '#CDD6F4'
+            const c = colourOf(r)
             return (
               <Box key={`tab:${r.id}`} flexDirection="row" backgroundColor={on ? '#313244' : undefined} paddingRight={1}>
                 <Text backgroundColor={c} color="#1E1E2E" bold> {glyph} </Text>
@@ -196,12 +154,12 @@ export function drawTabs(el: any, p: StageProps, tick: number, act: (a: Action) 
 function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
   const { Box, Text } = el
   const spin = SPIN[tick % SPIN.length]
-  const colour = run.color ?? ENGINE[run.engine] ?? '#CDD6F4'
+  const colour = colourOf(run)
   const running = run.status === 'running' || run.status === 'starting'
   const c = pct(run)
   return (
     <Box key="detail" borderStyle="round" borderColor={colour} paddingX={1} flexDirection="row" columnGap={2}>
-      <Box flexDirection="column" width={11} minWidth={11} flexShrink={0}>{robot(Text, colour, run.status, tick)}</Box>
+      <Box flexDirection="column" width={11} minWidth={11} flexShrink={0}>{robot(Text, colour, run.status, tick, (run.pending?.length ?? 0) > 0)}</Box>
       <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
         <Box flexDirection="row" justifyContent="space-between">
           <Text>
@@ -212,9 +170,9 @@ function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
         </Box>
         <Text bold wrap="truncate-end">{run.label}</Text>
         <Text wrap="truncate-end">
-          <Text backgroundColor="#313244" color={colour}> {run.steer === 'native' ? '⇄ steerable' : run.steer === 'watch' ? '◉ watch only' : '⇢ queued msgs'} </Text>
+          <Text backgroundColor="#313244" color={colour}> {steerLabel(run)} </Text>
           <Text> </Text>
-          <Text backgroundColor="#313244" color={run.autonomy === 'auto' ? '#F7768E' : '#9ECE6A'}> {run.autonomy === 'auto' ? '⚡ autonomous' : run.steer === 'watch' ? '✻ claude' : run.engine === 'antigravity' ? '◆ read-only' : '◆ asks first'} </Text>
+          <Text backgroundColor="#313244" color={autonomyLabel(run).warn ? '#F7768E' : '#5FD38D'}> {autonomyLabel(run).text} </Text>
           {run.pending && run.pending.length ? <Text color="#E0AF68" bold>  ⚑ {run.pending.length} waiting on you</Text> : null}
           {run.stuck ? <Text color="#F7768E" bold>  ⏸ quiet {Math.round((run.quiet_s ?? 0) / 60)}m</Text>
             : running && (run.quiet_s ?? 0) >= 45 ? <Text dimColor>  · no new output for {(run.quiet_s ?? 0) < 120 ? `${run.quiet_s}s` : `${Math.round((run.quiet_s ?? 0) / 60)}m`}, still running</Text> : null}
@@ -235,15 +193,41 @@ function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
   )
 }
 
-/** The animated head: title bar, a bridge problem line, and the selected run's card. Nothing in it depends on the
- *  room it is given, so drawing it in a Client or in the pane body gives the same picture. */
-export function drawHead(el: any, p: StageProps, tick: number) {
+/** Four stat tiles for the terminal: what is working, what needs you, what finished and what it cost. */
+function drawTiles(el: any, p: StageProps) {
   const { Box, Text } = el
+  const t = totals(p.runs)
+  const cell = (key: string, label: string, value: string, colour: string, live: boolean) => (
+    <Box key={key} flexDirection="column" borderStyle="round" borderColor={live ? colour : '#45475A'} paddingX={1} width="25%" flexShrink={1} minWidth={0}>
+      <Text dimColor wrap="truncate-end">{label}</Text>
+      <Text bold color={live ? colour : '#7F849C'} wrap="truncate-end">{value}</Text>
+    </Box>
+  )
+  return (
+    <Box key="tiles" flexDirection="row" columnGap={1}>
+      {cell('t-work', 'WORKING', String(t.working), STATUS.running!, t.working > 0)}
+      {cell('t-wait', 'NEEDS YOU', String(t.waiting), '#F5B93A', t.waiting > 0)}
+      {cell('t-done', 'FINISHED', String(t.finished), '#5FD38D', t.finished > 0)}
+      {cell('t-cost', 'SPEND', t.priced ? `$${t.usd < 100 ? t.usd.toFixed(2) : Math.round(t.usd)}` : '–', '#CDD6F4', t.priced)}
+    </Box>
+  )
+}
+
+/** The head: title bar, stat tiles and the selected run's card. On the desktop (`px` set and the surface draws vectors)
+ *  it is one vector picture sized to the pane; in the terminal it is text, animated by `tick`. Nothing in it depends on
+ *  the room it is given, so drawing it in a Client or in the pane body gives the same picture. */
+export function drawHead(el: any, p: StageProps, tick: number, px?: number) {
+  const { Box, Text, Svg } = el
+  if (Svg && px) {
+    const art = headSvg(p, px) // not `h`: JSX compiles to calls of the global h
+    return <Svg key="head-svg" source={art.source} alt={art.alt} width={px} height={art.height} />
+  }
   const run = p.runs.find(r => r.id === p.selected)
   return (
-    <Box key="head" flexDirection="column">
+    <Box key="head" flexDirection="column" rowGap={1}>
       {drawHeader(el, p, tick)}
       {p.problem ? <Text color="#F7768E">  bridge: {p.problem}</Text> : null}
+      {drawTiles(el, p)}
       {run ? drawCard(el, p, run, tick) : null}
     </Box>
   )
@@ -262,7 +246,7 @@ export function drawStage(el: any, p: StageProps, tick: number, _seenAt: Record<
       {drawTabs(el, p, tick, act)}
       {run ? drawTranscript(el, {
         run, feed: p.feed, partial: p.partial, open: new Set<string>(), shown: Math.max(3, fit.maxLines),
-        colour: run.color ?? ENGINE[run.engine] ?? '#CDD6F4', spin: SPIN[tick % SPIN.length]!,
+        colour: colourOf(run), spin: SPIN[tick % SPIN.length]!,
       }, () => {}) : null}
     </Box>
   )

@@ -31,22 +31,22 @@ HOME = Path(os.environ.get("MODSTAGE_HOME", Path.home() / ".modstage"))
 # steer: "native" = a message joins the running turn; "queue" = it runs after the turn ends.
 BUILTIN: list[dict] = [
     {"id": "codex", "name": "Codex", "protocol": "codex-app-server", "command": ["codex", "app-server"],
-     "color": "#7AA2F7", "steer": "native", "model_args": []},
+     "color": "#4C9BFF", "steer": "native", "model_args": []},
     {"id": "muse", "name": "Muse", "protocol": "muse-msp", "command": ["muse", "serve"],
-     "color": "#C792EA", "steer": "native", "model_args": ["--model", "{model}"]},
+     "color": "#A77BFF", "steer": "native", "model_args": ["--model", "{model}"]},
     {"id": "grok", "name": "Grok", "protocol": "acp", "command": ["grok", "agent", "stdio"],
-     "color": "#E0AF68", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 2,
+     "color": "#F5B93A", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 2,
      "effort_args": ["--effort", "{effort}"], "efforts": ["low", "medium", "high"]},
     {"id": "antigravity", "name": "Antigravity", "protocol": "stream-json",
      "command": ["agy", "--input-format", "stream-json", "--output-format", "stream-json", "--print="],
      "auto_args": ["--dangerously-skip-permissions"], "approvals": "cli", "ask_readonly": "agy-project",
-     "color": "#8AB4F8", "steer": "queue", "model_args": ["--model", "{model}"], "model_args_before": 1},
+     "color": "#2EC4B6", "steer": "queue", "model_args": ["--model", "{model}"], "model_args_before": 1},
     {"id": "kimi", "name": "Kimi", "protocol": "acp", "command": ["kimi", "acp"],
-     "color": "#F5C2E7", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 1},
+     "color": "#FF6B9D", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 1},
     {"id": "qwen", "name": "Qwen Code", "protocol": "acp", "command": ["qwen", "--acp"],
-     "color": "#9ECE6A", "steer": "queue", "model_args": ["--model", "{model}"]},
+     "color": "#6FCF5B", "steer": "queue", "model_args": ["--model", "{model}"]},
     {"id": "opencode", "name": "OpenCode", "protocol": "acp", "command": ["opencode", "acp"],
-     "color": "#FAB387", "steer": "queue", "model_args": [], "model_via": "acp-config"},
+     "color": "#8E9AAF", "steer": "queue", "model_args": [], "model_via": "acp-config"},
 ]
 
 # How to get each CLI when it is missing: shown in the panel, by stage_agents and in the "not installed" error.

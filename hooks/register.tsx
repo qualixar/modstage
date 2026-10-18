@@ -7,9 +7,10 @@ import { agentLaunchedBy, touchesBridge } from './guard.ts'
 import { boundTo, covers, decisionIn } from './decision.ts'
 import type { Json } from './bridge.ts'
 import { blankUsage, CLAUDE_COLOUR, claudeEditDetail, claudeToolDetail, clip, describe, liveClaude, MAX_EVENTS, MAX_RUNS } from './claude-agents.ts'
-import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, effortsFor, installLine } from './ui/native.tsx'
-import type { NativeAction } from './ui/native.tsx'
+import { ANSWER_MS, CLAUDE_AGENT, PRESS_MS, clearDrafts, draftKeyOf, setDraft, drawComposer, drawInbox, drawLauncher, drawSetup, effortsFor, installLine, pressKey } from './ui/native.tsx'
+import type { Answered, NativeAction } from './ui/native.tsx'
 import { bandRuns, drawHead, drawTabs, forClient, statusGlyph } from './ui/stage.tsx'
+import { widthFor } from './ui/head.ts'
 import { drawTranscript, FIRST_PAGE, followsLatest, PAGE } from './ui/transcript.tsx'
 import { stackBand } from './ui/bands.ts'
 import type { Action, StageProps } from './ui/stage.tsx'
@@ -30,6 +31,8 @@ const claudeFeeds = atom({ plugin: 'modstage', key: 'claudeFeeds' } as const, {}
 const launchAgent = atom({ plugin: 'modstage', key: 'launchAgent' } as const, '')
 const launchModel = atom({ plugin: 'modstage', key: 'launchModel' } as const, '')
 const launchEffort = atom({ plugin: 'modstage', key: 'launchEffort' } as const, '')
+const pressed = atom({ plugin: 'modstage', key: 'pressed' } as const, {} as Record<string, 'busy' | 'done'>)
+const answered = atom({ plugin: 'modstage', key: 'answered' } as const, {} as Answered)
 // transcript view: rows the person expanded (run:seq), how many newest events are drawn, and whether the pane follows new output
 const openRows = atom({ plugin: 'modstage', key: 'openRows' } as const, [])
 const shown = atom({ plugin: 'modstage', key: 'shown' } as const, FIRST_PAGE)
@@ -367,7 +370,37 @@ async function select($: any, id: string): Promise<void> {
   await poll($)
 }
 
+/** Runs an action and, for a button, shows it: busy while the bridge has not answered, done once it has, for at least
+ *  PRESS_MS (an answered approval stays as a confirming line for ANSWER_MS). An action that fails never shows done and
+ *  never empties a draft: the button returns at once, with the error as a toast. A button already pressed ignores a
+ *  second press. */
 async function perform($: any, a: Action | NativeAction): Promise<void> {
+  const slot = pressKey(a as any)
+  if (!slot) { await performAction($, a); return }
+  if (slot in (((await read($, pressed).catch(() => ({}))) as Record<string, string>))) return
+  const t0 = Date.now()
+  const asked = a.type === 'decide' ? ((await read($, inbox).catch(() => [])) as Pending[]).find(p => p.id === (a as any).approvalId) : undefined
+  const drop = (m: Record<string, any>, key: string) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== key))
+  await update($, pressed, m => ({ ...m, [slot]: 'busy' as const })).catch(() => undefined)
+  const ok = (await performAction($, a)) !== false
+  if (!ok) {
+    await update($, pressed, m => drop(m, slot) as any).catch(() => undefined)
+    return
+  }
+  const box = draftKeyOf(a as any)
+  if (box) setDraft(box, '')
+  await update($, pressed, m => ({ ...m, [slot]: 'done' as const })).catch(() => undefined)
+  if (asked) {
+    await update($, answered, m => ({ ...m, [asked.id]: { engine: asked.engine, title: String(asked.title ?? '').slice(0, 120), choice: (a as any).choice } })).catch(() => undefined)
+  }
+  const left = (asked ? ANSWER_MS : PRESS_MS) - (Date.now() - t0)
+  if (left > 0) await $.clock.sleep(left).catch(() => undefined)
+  await update($, pressed, m => drop(m, slot) as any).catch(() => undefined)
+  if (asked) await update($, answered, m => drop(m, asked.id) as any).catch(() => undefined)
+}
+
+/** Resolves false when the action failed (its error is shown as a toast), anything else when it went through. */
+async function performAction($: any, a: Action | NativeAction): Promise<boolean | void> {
   try {
     switch (a.type) {
       case 'select': return await select($, a.id)
@@ -436,6 +469,7 @@ async function perform($: any, a: Action | NativeAction): Promise<void> {
     await poll($)
   } catch (err) {
     $.ui.toast(`ModStage: ${String((err as Error).message ?? err).slice(0, 140)}`)
+    return false
   }
 }
 
@@ -669,6 +703,7 @@ export const register: Register = on => {
   // tabs and feeds go, and so does the hook-envelope id. The session's capability stays with the process, so
   // ModStage runs it started stay attached to it rather than running on with no parent.
   on('session.end', async ($, e: any, next) => {
+    clearDrafts() // a message half-written for a session never shows up in the next one
     if (e?.reason === 'clear' || e?.reason === 'resume') {
       await update($, claudeRuns, () => [])
       await update($, claudeFeeds, () => ({}))
@@ -1046,23 +1081,27 @@ export const register: Register = on => {
       canType,
     }
     const run = allRuns.find(r => r.id === sel)
-    const top = (
-      <Box key="native-top" flexDirection="column" rowGap={1}>
-        {drawInbox(els, pending, colours, act)}
-        {drawLauncher(els, [CLAUDE_AGENT, ...plugged], await read($, launchAgent), await read($, launchModel), canType, act, await read($, launchEffort))}
+    const pressedNow = (await read($, pressed)) as Record<string, 'busy' | 'done'>
+    const inboxEl = drawInbox(els, pending, colours, act, pressedNow, (await read($, answered)) as Answered)
+    const launcherEl = (
+      <Box key="native-launch" flexDirection="column" rowGap={1}>
+        {drawLauncher(els, [CLAUDE_AGENT, ...plugged], await read($, launchAgent), await read($, launchModel), canType, act, await read($, launchEffort), pressedNow)}
         {allRuns.length === 0 ? drawSetup(els, plugged) : null}
       </Box>
     )
-    const bottom = run ? drawComposer(els, run, canType, act) : null
-    const n = env.useClient && els.Client && !clientFault ? 4 : await read($, tick) // 4 = the resting spinner glyph
-    // The animated head (title bar and robot card) is a small fixed-size Client; the tabs and the transcript
-    // are ordinary pane content, so the engine scrolls the whole pane with the wheel, arrows and Page keys.
+    const bottom = run ? drawComposer(els, run, canType, act, pressedNow) : null
+    // Desktop: the head is one vector picture sized to the pane, drawn right here (it animates by itself, so it needs no
+    // frame clock). Terminal: a small Client animates the text head; the tabs and the transcript are ordinary pane
+    // content, so the engine scrolls the whole pane with the wheel, arrows and Page keys.
+    const px = els.Svg && (e as any).surface !== 'terminal' ? widthFor(((e.props as any).bodyColumns || 0) - 2) : undefined
+    const animated = !px && env.useClient && els.Client && !clientFault
+    const n = animated || px ? 4 : await read($, tick) // 4 = the resting spinner glyph
     let head: any
-    if (env.useClient && els.Client && !clientFault) {
+    if (animated) {
       const { Client } = els
       head = <Client key="stage" module="./ui/stage.tsx" props={forClient({ ...props, feed: [], partial: '' })} />
     } else {
-      head = drawHead(els, props, n)
+      head = drawHead(els, props, n, px)
     }
     const colour = run?.color ?? colours[run?.engine ?? ''] ?? '#CDD6F4'
     const transcript = run ? drawTranscript(els, {
@@ -1071,8 +1110,9 @@ export const register: Register = on => {
     }, act) : null
     return (
       <Box flexDirection="column" rowGap={1}>
-        {top}
+        {inboxEl}
         {head}
+        {launcherEl}
         {clientFault ? <Text dimColor wrap="truncate-end">animated view off ({clientFault}); drawing from the plugin instead</Text> : null}
         {drawTabs(els, props, n, act)}
         {transcript}

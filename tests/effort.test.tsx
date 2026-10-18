@@ -35,7 +35,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
       </el.Box>
     })
     const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'Pane', requestId: 'efforts', props: {} as any, viewport: { columns: 120, rows: 40 } })
-    expect(await ui.find({ text: /thinking effort/ })).toBeTruthy()
+    expect(await ui.find({ text: /effort/ })).toBeTruthy()
     expect(await ui.find({ text: /default \(low\)/ })).toBeTruthy()          // what the CLI uses when none is picked
     for (const level of ['low', 'medium', 'xhigh', 'max', 'ultra']) expect(await ui.find({ key: `effort:${level}` })).toBeTruthy()
     expect(await ui.find({ text: /● high/ })).toBeTruthy()                    // the current pick
