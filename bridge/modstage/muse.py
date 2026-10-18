@@ -29,6 +29,9 @@ def _cid() -> str:
     return str(uuid.UUID(bytes=raw))
 
 
+from .detail import args_detail, clip, edit_detail
+
+
 def _short(value, limit: int = 300) -> str:
     text = value if isinstance(value, str) else json.dumps(value)
     return text if len(text) <= limit else text[:limit] + "…"
@@ -38,12 +41,12 @@ def _args(raw) -> str:
     try:
         data = json.loads(raw) if isinstance(raw, str) else (raw or {})
     except json.JSONDecodeError:
-        return _short(raw, 160)
+        return _short(raw, 600)
     if isinstance(data, dict):
         for key in ("command", "path", "file_path", "pattern", "query", "url"):
             if key in data:
-                return _short(str(data[key]), 160)
-    return _short(data, 160)
+                return _short(str(data[key]), 600)
+    return _short(data, 600)
 
 
 def _stage_tools(run: Run) -> list[str]:
@@ -158,15 +161,15 @@ class MuseAdapter:
         if kind == "toolCall":
             tool = item.get("tool", "tool")
             if not done:
-                run.add("tool", f"{tool} {_args(item.get('args'))}")
+                run.add("tool", f"{tool} {_args(item.get('args'))}", args_detail(item.get("args"), _args(item.get("args"))) or None)
                 run.set(activity=f"{tool}: {_args(item.get('args'))[:60]}")
             else:
                 out = item.get("output") or item.get("result") or item.get("outputPreview") or ""
                 status = item.get("toolStatus") or item.get("status")
-                run.add("result", f"{tool} {status}", _short(out, 1500) if out else None)
+                run.add("result", f"{tool} {status}", clip(out) if out else None)
                 run.set(activity="thinking")  # the tool is over: do not keep showing it
                 if tool in ("write_file", "edit_file", "apply_patch", "str_replace"):
-                    run.add("edit", f"edited {_args(item.get('args'))}")
+                    run.add("edit", f"edited {_args(item.get('args'))}", edit_detail(item.get("args")) or None)
                     run.touch([_args(item.get("args"))])
         elif kind == "agentMessage" and done:
             text = item.get("text", "")
@@ -175,7 +178,7 @@ class MuseAdapter:
         elif kind == "reasoning":
             text = item.get("text") or item.get("summary") or ""
             if done and text:
-                run.add("thinking", _short(text, 1200))
+                run.add("thinking", _short(text, 3000))
             run.set(activity="thinking")
         elif kind and done and kind not in ("agentMessage",):
             label = item.get("label") or item.get("fallbackText") or kind

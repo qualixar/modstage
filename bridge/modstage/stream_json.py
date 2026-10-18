@@ -28,6 +28,9 @@ from .registry import AGY_RESTART, argv
 from .run import Run
 
 
+from .detail import args_detail, clip, edit_detail
+
+
 def _short(value, limit: int = 300) -> str:
     text = value if isinstance(value, str) else json.dumps(value)
     return text if len(text) <= limit else text[:limit] + "…"
@@ -193,13 +196,13 @@ class StreamJsonAdapter:
                     if self.message.strip():
                         run.add("message", self.message.strip())
                         self.message = ""
-                    run.add("tool", f"{name} {_short(what, 200)}".strip())
+                    run.add("tool", f"{name} {_short(what, 600)}".strip(), args_detail(params, what) or None)
                     run.set(activity=f"{name}: {_short(what, 60)}")
                 elif state == "DONE":
                     out = info.get("output") or ""
-                    run.add("result", f"{name} done", _short(out, 1500) if out else None)
+                    run.add("result", f"{name} done", clip(out) if out else None)
                     if any(w in name for w in ("write", "edit", "replace", "create")) and what:
-                        run.add("edit", f"edited {what}")
+                        run.add("edit", f"edited {what}", edit_detail(params) or None)
                         run.touch([what])
         elif ev == "result":
             res = msg.get("result") or {}

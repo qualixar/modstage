@@ -12,9 +12,26 @@ from .run import Run
 from .stdio_rpc import StdioRpc
 
 
+from .detail import LIMIT, args_detail, clip
+
+
 def _short(value, limit: int = 300) -> str:
     text = value if isinstance(value, str) else str(value)
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _tool_output(item: dict) -> str:
+    """A tool call's result as text: MCP `result.content` blocks, a dynamic tool's `contentItems`, or an error message."""
+    err = item.get("error")
+    if err:
+        return clip(err.get("message") if isinstance(err, dict) else err)
+    result = item.get("result") if isinstance(item.get("result"), dict) else {}
+    blocks = result.get("content") or item.get("contentItems") or []
+    texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("text")]
+    if texts:
+        return clip("\n".join(texts))
+    structured = result.get("structuredContent")
+    return clip(structured) if structured else ""
 
 
 class CodexAdapter:
@@ -121,24 +138,30 @@ class CodexAdapter:
                 run.set(activity=f"running: {_short(command, 60)}")
             else:
                 output = item.get("aggregatedOutput") or ""
-                run.add("result", f"exit {item.get('exitCode')}", _short(output, 1500))
+                run.add("result", f"exit {item.get('exitCode')}", clip(output) if output.strip() else None)
                 run.set(activity="thinking")  # the command is over: do not keep showing it
         elif kind == "fileChange" and not done:
             self.item_paths[item.get("id", "")] = [c.get("path") for c in item.get("changes") or [] if c.get("path")]
         elif kind == "fileChange" and done:
             self.item_paths.pop(item.get("id", ""), None)
             changed = [c.get("path") for c in item.get("changes") or [] if c.get("path")]
-            run.add("edit", f"edited {', '.join(changed) or '?'}")
+            # each change carries its own diff; show them all, a change without one at least says what kind it was
+            diffs = "\n".join(str(c.get("diff") or f"{c.get('path')}: {c.get('kind') or 'changed'}")
+                              for c in item.get("changes") or [] if c.get("path"))
+            run.add("edit", f"edited {', '.join(changed) or '?'}", clip(diffs) if diffs.strip() else None)
             run.touch(changed)
         elif kind == "mcpToolCall":
             name = f"{item.get('server')}.{item.get('tool')}"
             if not done:
-                run.add("tool", f"mcp {name}", _short(item.get("arguments"), 600))
+                run.add("tool", f"mcp {name}", args_detail(item.get("arguments")) or None)
                 run.set(activity=f"mcp {name}")
             else:
-                run.add("result", f"mcp {name} {item.get('status')}")
+                run.add("result", f"mcp {name} {item.get('status')}", _tool_output(item) or None)
         elif kind == "dynamicToolCall" and not done:
-            run.add("tool", f"tool {item.get('tool')}", _short(item.get("arguments"), 600))
+            run.add("tool", f"tool {item.get('tool')}", args_detail(item.get("arguments")) or None)
+        elif kind == "dynamicToolCall" and done:
+            run.add("result", f"tool {item.get('tool')} {'ok' if item.get('success') is not False else 'failed'}",
+                    _tool_output(item) or None)
         elif kind == "webSearch" and not done:
             run.add("tool", "web search", _short(item.get("query", ""), 200))
         elif kind == "reasoning" and not done:
@@ -146,10 +169,10 @@ class CodexAdapter:
         elif kind == "reasoning" and done:
             summary = " ".join(item.get("summary") or [])
             if summary.strip():
-                run.add("thinking", _short(summary, 1200))
+                run.add("thinking", _short(summary, 3000))
             run.set(activity="thinking")
         elif kind == "plan" and done:
-            run.add("plan", _short(item.get("text", ""), 1500))
+            run.add("plan", _short(item.get("text", ""), 3000))
         elif kind == "agentMessage" and done:
             text = item.get("text", "")
             run.add("message", text)

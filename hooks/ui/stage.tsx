@@ -56,8 +56,6 @@ export type StageProps = {
   problem: string
   home: string
   canType: boolean
-  /** Rows the stage may fill, decided outside it (see nativeRows). */
-  rows?: number
 }
 export type Action =
   | { type: 'select'; id: string }
@@ -139,11 +137,6 @@ function robot(Text: any, colour: string, status: string, tick: number) {
 const elapsed = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`)
 
 export type Fit = { maxLines: number; composer: boolean }
-
-/** Rows the animated head (title bar, then the robot card) is drawn into: a fixed number, so what the
- *  Client draws can never change the size of its own region. */
-export const HEAD_ROWS = 16
-export const HEAD_ROWS_NO_RUN = 4
 
 function drawHeader(el: any, p: StageProps, tick: number) {
   const { Box, Text } = el
@@ -242,8 +235,8 @@ function drawCard(el: any, p: StageProps, run: RunView, tick: number) {
   )
 }
 
-/** The animated head: title bar, a bridge problem line, and the selected run's card. Fixed in size by
- *  the caller (HEAD_ROWS), so drawing it in a Client or in the pane body gives the same picture. */
+/** The animated head: title bar, a bridge problem line, and the selected run's card. Nothing in it depends on the
+ *  room it is given, so drawing it in a Client or in the pane body gives the same picture. */
 export function drawHead(el: any, p: StageProps, tick: number) {
   const { Box, Text } = el
   const run = p.runs.find(r => r.id === p.selected)
@@ -275,9 +268,10 @@ export function drawStage(el: any, p: StageProps, tick: number, _seenAt: Record<
   )
 }
 
-/** The Client surface module: a 100 ms frame clock animates the head; its size comes from its props and
- *  never from its own measured region (a region that sizes its content while its content sizes the region
- *  is unmounted by the engine). The transcript is not drawn here: the pane body draws it so it scrolls. */
+/** The Client surface module: a 100 ms frame clock animates the head (title bar and robot card). Its content
+ *  never depends on its own measured region (no surface.rows), so letting the region be as tall as what it draws
+ *  cannot feed back on itself: that loop is what made the engine unmount the old stage. The transcript is not
+ *  drawn here: the pane body draws it so it scrolls. */
 const started = new WeakSet<object>()
 
 export default function StageClient(props: any, surface: any) {
@@ -288,11 +282,5 @@ export default function StageClient(props: any, surface: any) {
     surface.every(100, () => surface.setState({ tick: ++n }))
   }
   const tick: number = (surface.state as { tick?: number } | undefined)?.tick ?? 0
-  const rows = Math.max(HEAD_ROWS_NO_RUN, Math.round(p.rows ?? HEAD_ROWS))
-  const { Box } = surface.elements
-  return (
-    <Box key="head-fixed" flexDirection="column" height={rows} overflow="hidden">
-      {drawHead(surface.elements, p, tick)}
-    </Box>
-  )
+  return drawHead(surface.elements, p, tick)
 }

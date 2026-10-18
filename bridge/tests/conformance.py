@@ -23,9 +23,10 @@ from modstage import registry, server
 NATIVE_STEER = {"codex", "muse"}
 QUEUE_STEER = {"grok", "antigravity", "kimi", "qwen", "opencode"}
 
-CONTROLS = ["start", "model", "stream", "long_turn", "approval", "steer", "queued", "interrupt", "resume", "close", "images"]
+CONTROLS = ["start", "model", "stream", "long_turn", "tool_detail", "edit_diff", "approval", "steer", "queued", "interrupt", "resume", "close", "images"]
 TITLES = {
-    "start": "1 Start", "model": "1b Pick a model", "stream": "2 Stream text + tools", "long_turn": "2b Long turn looks alive",
+    "start": "1 Start", "model": "1b Pick a model", "stream": "2 Stream text + tools", "tool_detail": "2c Tool input and output in full",
+    "edit_diff": "2d Edits show what changed", "long_turn": "2b Long turn looks alive",
     "approval": "3 Approval round trip", "steer": "4 Steer mid-turn", "queued": "4b Queued-message feedback",
     "interrupt": "5 Interrupt", "resume": "6 Resume after exit", "close": "7 Close", "images": "8 Images",
 }
@@ -85,6 +86,32 @@ def check_stream(t, agent):
         t.assertIn("message", kinds)
         t.assertEqual(h.run.final_text, "hello there")
         t.assertEqual(h.run.status, "idle")
+    _with(agent, body)
+
+
+def check_tool_detail(t, agent):
+    """A command is shown whole and its output reaches the panel up to the run's per-event cap, not a short cut."""
+    def body(h):
+        h.started()
+        command = "grep -rn " + "x" * 300
+        output = "result line\n" * 500
+        h.tool(command)
+        h.tool_result(command, output)
+        tool = next(e for e in h.run.events if e["kind"] == "tool")
+        t.assertIn(command[:280], tool["text"] + (tool.get("detail") or ""), "the command was cut short")
+        result = next(e for e in h.run.events if e["kind"] == "result")
+        t.assertGreater(len(result.get("detail") or ""), 3000, "the result was cut short")
+    _with(agent, body)
+
+
+def check_edit_diff(t, agent):
+    """An edit row carries the change itself (a diff), not just the file name."""
+    def body(h):
+        h.started()
+        h.edit("a.py", "x = 1\n", "x = 2\n")
+        edit = next(e for e in h.run.events if e["kind"] == "edit")
+        t.assertIn("+x = 2", edit.get("detail") or "", "the edit row has no diff")
+        t.assertIn("-x = 1", edit.get("detail") or "")
     _with(agent, body)
 
 
@@ -241,6 +268,14 @@ DEGRADED = {
                                   "stays fresh, but cannot show what it is thinking",
     ("antigravity", "queued"): "'Interrupt and send now' restarts agy (it has no cancel) with a recap plus the queued message",
     ("antigravity", "interrupt"): "agy has no cancel: ModStage stops the process; the next message restarts it with a recap",
+    ("codex", "edit_diff"): "each change's `diff` field from the app-server's fileChange item; the field name is the "
+                            "protocol's as documented, not yet confirmed against the real CLI (run scripts/smoke_real_cli.py)",
+    **{(a, "edit_diff"): "the diff comes from the ACP `diff` block the CLI sends (old and new text); not yet confirmed "
+                         "against each real CLI (run scripts/smoke_real_cli.py)" for a in ("grok", "kimi", "qwen", "opencode")},
+    ("muse", "edit_diff"): "built from the edit tool's own arguments (replace old/new text, or the whole new file); an edit "
+                           "tool with another argument shape shows the file name only",
+    ("antigravity", "edit_diff"): "built from the edit tool's own parameters (target/replacement content, or the whole new "
+                                  "file); a tool with another parameter shape shows the file name only",
     **{(a, "resume"): "restarts a fresh process with a recap of the run, not the CLI's own session resume" for a in BRIDGE_AGENTS},
 }
 NA = {
