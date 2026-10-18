@@ -59,7 +59,8 @@ export function fakeBridge(on: any, b: Bridge) {
       run.pending = run.pending.filter((p: any) => p.id !== body.approval_id)
       return reply(200, { ok: true })
     }
-    return reply(200, { ...run, new_events: [], partial: '' })
+    const after = Number(url.searchParams.get('after') ?? 0)
+    return reply(200, { ...run, new_events: (run.events_log ?? []).filter((ev: any) => ev.seq > after), partial: run.partial_text ?? '' })
   })
 }
 

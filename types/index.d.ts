@@ -90,6 +90,12 @@ declare module 'claude-code' {
       claudeFeeds: Record<string, RunEvent[]>
       launchAgent: string
       launchModel: string
+      /** transcript rows the person expanded, as `runId:seq` */
+      openRows: string[]
+      /** how many of the newest events the transcript draws */
+      shown: number
+      /** whether the pane scrolls to new output (true until the person scrolls up) */
+      following: boolean
       /** the user's last own prompt: seconds since the epoch, the decision it states, and whether one decide used it (never its text) */
       userPrompt: { at: number; decision: string; used: boolean }
       /** this session's capability at the bridge (held in host memory, never on disk) and its board peer id */

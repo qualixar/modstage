@@ -7,9 +7,10 @@ import { agentLaunchedBy, touchesBridge } from './guard.ts'
 import { covers, decisionIn } from './decision.ts'
 import type { Json } from './bridge.ts'
 import { blankUsage, CLAUDE_COLOUR, describe, liveClaude, MAX_EVENTS, MAX_RUNS } from './claude-agents.ts'
-import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, installLine, nativeRows } from './ui/native.tsx'
+import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, installLine } from './ui/native.tsx'
 import type { NativeAction } from './ui/native.tsx'
-import { bandRuns, drawStage, forClient, statusGlyph } from './ui/stage.tsx'
+import { bandRuns, drawHead, drawTabs, forClient, HEAD_ROWS, HEAD_ROWS_NO_RUN, statusGlyph } from './ui/stage.tsx'
+import { drawTranscript, FIRST_PAGE, followsLatest, PAGE } from './ui/transcript.tsx'
 import type { Action, StageProps } from './ui/stage.tsx'
 
 const PANE = 'modstage'
@@ -27,6 +28,10 @@ const claudeRuns = atom({ plugin: 'modstage', key: 'claudeRuns' } as const, [])
 const claudeFeeds = atom({ plugin: 'modstage', key: 'claudeFeeds' } as const, {})
 const launchAgent = atom({ plugin: 'modstage', key: 'launchAgent' } as const, '')
 const launchModel = atom({ plugin: 'modstage', key: 'launchModel' } as const, '')
+// transcript view: rows the person expanded (run:seq), how many newest events are drawn, and whether the pane follows new output
+const openRows = atom({ plugin: 'modstage', key: 'openRows' } as const, [])
+const shown = atom({ plugin: 'modstage', key: 'shown' } as const, FIRST_PAGE)
+const following = atom({ plugin: 'modstage', key: 'following' } as const, true)
 // the last prompt the user themself submitted (seconds, as the bridge stamps approvals); stage_decide needs one newer than the approval
 // the user's last own prompt: when, and the decision it states ('' when it states none). Never its text.
 const userPrompt = atom({ plugin: 'modstage', key: 'userPrompt' } as const, { at: 0, decision: '', used: false })
@@ -151,7 +156,9 @@ let polling = false
 let pollStarted = 0
 let beat = 0
 let stopTimer: (() => void) | null = null
-const seenAt: Record<number, number> = {}
+// the pane scrolls to its end after a draw that added output, while the person is following it
+let wantEnd = false
+let lastGrowth = ''
 
 const isClaude = (id: string) => id.startsWith('claude:')
 
@@ -251,6 +258,10 @@ function ensureTimer($: any): void {
   if (stopTimer) return
   stopTimer = $.clock.every(250, () => {
     beat += 1
+    if (wantEnd) {
+      wantEnd = false
+      void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {})   // the pane may be closed
+    }
     if (beat % 4 === 0) void poll($)
     if (beat % 240 === 0) void refreshAgents($)
     if (!env.useClient || clientFault) {
@@ -311,9 +322,14 @@ async function poll($: any): Promise<void> {
       const fresh = d.new_events as RunEvent[]
       if (fresh.length) {
         lastSeq = fresh[fresh.length - 1]?.seq ?? lastSeq
-        await update($, feed, old => [...old, ...fresh].slice(-400))
+        await update($, feed, old => [...old, ...fresh].slice(-1000))
       }
       await update($, partial, () => d.partial ?? '')
+      const sig = `${id}:${lastSeq}:${String(d.partial ?? '').length}`
+      if (sig !== lastGrowth) {
+        lastGrowth = sig
+        if (await read($, following)) wantEnd = true
+      }
     }
     await update($, updatedAt, () => Date.now())
   } catch (err) {
@@ -325,6 +341,9 @@ async function poll($: any): Promise<void> {
 
 async function select($: any, id: string): Promise<void> {
   lastSeq = 0
+  await update($, following, () => true)
+  await update($, shown, () => FIRST_PAGE)
+  wantEnd = true
   await update($, feed, () => [])
   await update($, partial, () => '')
   await update($, selected, () => id)
@@ -352,6 +371,10 @@ async function perform($: any, a: Action | NativeAction): Promise<void> {
         await update($, launchModel, () => '')
         await update($, launchAgent, () => a.engine); return
       case 'pickModel': await update($, launchModel, () => a.model); return
+      case 'toggle':
+        await update($, openRows, (list: string[]) => list.includes(a.key) ? list.filter(k => k !== a.key) : [...list, a.key].slice(-300))
+        return
+      case 'earlier': await update($, shown, (n: number) => n + PAGE); return
       case 'launch': {
         const cwd = await $.session.cwd()
         if (a.engine === 'claude') {
@@ -890,6 +913,14 @@ export const register: Register = on => {
     )
   })
 
+  // The person scrolled the pane: follow new output only while the window sits at its end.
+  on('ui.scroll', { requestId: PANE } as any, async ($, e: any, next) => {
+    if (e.origin?.kind === 'person') {
+      await update($, following, () => followsLatest(e.offset, e.bodyRows, e.contentRows))
+    }
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     await setup($)
     const els: any = $.ui.resolve(e)
@@ -905,22 +936,18 @@ export const register: Register = on => {
     const colours: Record<string, string> = Object.fromEntries(plugged.map(a => [a.id, a.color ?? '#CDD6F4']))
     const canType = e.surface !== 'mobile'
     const act = (a: Action | NativeAction) => void perform($, a)
-    // The stage's height is decided here, from the pane and the native parts around it, so it cannot feed back on itself.
-    const stageRows = Math.min(80, Math.max(14, Math.round(e.viewport?.rows ?? 40) - nativeRows(pending.length, plugged.length + 1,
-      !!(await read($, launchAgent)), allRuns.length > 0)))
+    const events = (claudeFeed ?? ((await read($, feed)) as RunEvent[])).map(ev => ({
+      seq: ev.seq, kind: ev.kind, text: String(ev.text ?? '').slice(0, 4000), detail: ev.detail?.slice(0, 4000),
+    }))
     const props: StageProps = {
       runs: allRuns as any,
       selected: sel,
-      // keep the Client's props well under its 100k-character limit
-      feed: (claudeFeed ?? ((await read($, feed)) as RunEvent[])).slice(-60).map(ev => ({
-        seq: ev.seq, kind: ev.kind, text: ev.text.slice(0, 400), detail: ev.detail?.slice(-240),
-      })),
-      partial: claudeFeed ? '' : ((await read($, partial)) as string).slice(-400),
+      feed: events,
+      partial: claudeFeed ? '' : ((await read($, partial)) as string).slice(-1500),
       age: seen ? Math.round((Date.now() - seen) / 1000) : -1,
       problem: await read($, bridgeError),
       home: env.home,
       canType,
-      rows: stageRows,
     }
     const run = allRuns.find(r => r.id === sel)
     const top = (
@@ -931,28 +958,29 @@ export const register: Register = on => {
       </Box>
     )
     const bottom = run ? drawComposer(els, run, canType, act) : null
+    const n = env.useClient && els.Client && !clientFault ? 4 : await read($, tick) // 4 = the resting spinner glyph
+    // The animated head (title bar and robot card) is a small fixed-size Client; the tabs and the transcript
+    // are ordinary pane content, so the engine scrolls the whole pane with the wheel, arrows and Page keys.
+    let head: any
     if (env.useClient && els.Client && !clientFault) {
       const { Client } = els
-      // Client props must be plain JSON: no `undefined` anywhere (an event with no detail, say).
-      const plain = forClient(props)
-      // Native parts (inbox, launcher, message box) sit outside the animated region, so its
-      // frame clock never redraws what the person is typing or pressing.
-      return (
-        <Box flexDirection="column" height="100%" rowGap={1}>
-          {top}
-          <Client key="stage" module="./ui/stage.tsx" props={plain} height={stageRows} />
-          {bottom}
-        </Box>
-      )
+      const rows = run ? HEAD_ROWS : HEAD_ROWS_NO_RUN
+      head = <Client key="stage" module="./ui/stage.tsx" props={forClient({ ...props, feed: [], partial: '', rows })} height={rows} />
+    } else {
+      head = drawHead(els, props, n)
     }
-    const n = await read($, tick)
-    for (const ev of props.feed) if (seenAt[ev.seq] === undefined) seenAt[ev.seq] = n
-    const rows = e.viewport?.rows ?? 40
+    const colour = run?.color ?? colours[run?.engine ?? ''] ?? '#CDD6F4'
+    const transcript = run ? drawTranscript(els, {
+      run: run as any, feed: events, partial: props.partial, open: new Set((await read($, openRows)) as string[]),
+      shown: (await read($, shown)) as number, colour, spin: '✻',
+    }, act) : null
     return (
       <Box flexDirection="column" rowGap={1}>
         {top}
+        {head}
         {clientFault ? <Text dimColor wrap="truncate-end">animated view off ({clientFault}); drawing from the plugin instead</Text> : null}
-        {drawStage(els, props, n, seenAt, act, { maxLines: Math.max(4, rows - 26), composer: false })}
+        {drawTabs(els, props, n, act)}
+        {transcript}
         {bottom}
       </Box>
     )

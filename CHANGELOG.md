@@ -2,6 +2,17 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.12 - 2026-10-18
+
+### Fixed
+
+- **0.0.11 squeezed the panel to a few rows you could not scroll.** The stage was given a fixed height worked out from an estimate of the pane's size; in a pane where that estimate came out small, the run's card was cut off and the transcript was gone. The stage no longer has a computed height at all: the card and the transcript take the room they need and the whole pane scrolls.
+
+### Added
+
+- **The run's transcript scrolls like a terminal.** It is drawn in the pane body, so the mouse wheel, arrow keys and Page Up/Down move through it. Messages wrap in full (they were cut at 400 characters), a tool call's result expands to its whole output and an edit to its diff (`▸ N lines` / `▾ collapse`), and `↑ N earlier events` pages back through the run's history (up to 1,000 events kept in the panel). New output is followed while you are at the bottom and stops following when you scroll up; scroll back to the end to follow again.
+- Only the animated title bar and robot card stay in the animated region, at a fixed size; everything you read is ordinary pane content.
+
 ## 0.0.11 - 2026-10-18
 
 ### Fixed
