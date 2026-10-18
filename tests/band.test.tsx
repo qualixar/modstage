@@ -98,3 +98,33 @@ for (const surface of ['desktop', 'terminal'] as const) {
     await ui.unmount()
   })
 }
+
+// 0.0.14 never called next(e) in the AbovePrompt hook, so every band beneath it (context-bar, token-weather,
+// cache-tax) drew nothing while ModStage was installed (18 Oct 2026). ModStage now adds its band to theirs.
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`the band keeps the bands of other mods and adds ModStage's own (${surface})`, async ($, on) => {
+    on('ui.render', { component: 'AbovePrompt' } as any, async ($$: any, e: any) => {
+      const { Box, Text } = $$.ui.resolve(e)
+      const own = <Box key="band:other-mod" flexDirection="column"><Text>other mod's band</Text></Box>
+      return { type: 'Box', props: { key: 'bands', flexDirection: 'column' }, children: [own] } as any
+    })
+    const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'AbovePrompt',
+      props: { hasSurvey: false } as any, viewport: { columns: 200, rows: 6 } })
+    expect(await ui.find({ text: /other mod's band/ })).toBeTruthy()
+    expect(await ui.find({ key: 'band-title' })).toBeTruthy()
+    expect(await ui.find({ key: 'band:modstage' })).toBeTruthy()
+    await ui.unmount()
+  })
+
+  test(`a survey hides ModStage's band but not another mod's (${surface})`, async ($, on) => {
+    on('ui.render', { component: 'AbovePrompt' } as any, async ($$: any, e: any) => {
+      const { Text } = $$.ui.resolve(e)
+      return { type: 'Box', props: { key: 'bands', flexDirection: 'column' }, children: [<Text key="band:other-mod">other mod's band</Text>] } as any
+    })
+    const ui: any = await $.ui.mount({ plugin: 'modstage', surface, component: 'AbovePrompt',
+      props: { hasSurvey: true } as any, viewport: { columns: 200, rows: 6 } })
+    expect(await ui.find({ text: /other mod's band/ })).toBeTruthy()
+    expect(await ui.find({ key: 'band-title' })).toBeUndefined()
+    await ui.unmount()
+  })
+}

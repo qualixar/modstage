@@ -2,6 +2,12 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.15 - 2026-10-18
+
+### Fixed
+
+- **ModStage hid every other mod's band above the prompt.** Its band never asked the mods beneath it for theirs, so while ModStage was installed, context-bar, token-weather, cache-tax's keep-warm row and any other mod that draws above the prompt showed nothing. ModStage is an add-on and must not replace what a person already runs: its band now takes the shared place above the prompt (a Box keyed `band:modstage`, in the `bands` column the community band mods already use), below the bands the other mods draw, and a failing mod beneath it cannot take it down. A survey still hides ModStage's band, and only that. Regression tests mount a second mod's band under ModStage on desktop and terminal and fail on 0.0.14. Reported by a user running context-bar and token-weather beside ModStage.
+
 ## 0.0.14 - 2026-10-18
 
 ### Added

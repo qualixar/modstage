@@ -11,6 +11,7 @@ import { CLAUDE_AGENT, drawComposer, drawInbox, drawLauncher, drawSetup, efforts
 import type { NativeAction } from './ui/native.tsx'
 import { bandRuns, drawHead, drawTabs, forClient, statusGlyph } from './ui/stage.tsx'
 import { drawTranscript, FIRST_PAGE, followsLatest, PAGE } from './ui/transcript.tsx'
+import { stackBand } from './ui/bands.ts'
 import type { Action, StageProps } from './ui/stage.tsx'
 
 const PANE = 'modstage'
@@ -969,7 +970,8 @@ export const register: Register = on => {
 
   // Entry point on every surface: a band above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if ((e.props as any).hasSurvey) return next(e)
+    const rest = await next(e).catch(() => undefined) // other mods' bands stay: only a survey is allowed to hide ours; a failing mod beneath must not take ours down
+    if ((e.props as any).hasSurvey) return rest
     const { Box, Text, Button } = $.ui.resolve(e)
     const list = [...((await read($, runs)) as RunSummary[]), ...liveClaude((await read($, claudeRuns)) as RunSummary[])]
     const waiting = ((await read($, inbox)) as Pending[]).length
@@ -984,7 +986,7 @@ export const register: Register = on => {
       await open()
       await revealInbox($)
     }
-    return (
+    const mine = (
       <Box flexDirection="row" columnGap={1} flexWrap="wrap">
         <Box key="band-title" flexDirection="row">
           <Text color="#D97757" bold>✻ </Text>
@@ -1004,6 +1006,7 @@ export const register: Register = on => {
         <Button key="stage-open-btn" label="Open" variant="primary" onPress={() => open()} />
       </Box>
     )
+    return stackBand(rest as any, 'modstage', mine as any) as any
   })
 
   // The person scrolled the pane: follow new output only while the window sits at its end.
