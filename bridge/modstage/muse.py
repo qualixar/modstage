@@ -49,6 +49,18 @@ def _args(raw) -> str:
     return _short(data, 600)
 
 
+def _effort_args(run: Run) -> list[str]:
+    """Muse keeps a thinking effort per model in its settings (`model_reasoning_efforts`); for this host it is set
+    the same way, one setting, for the model the run uses."""
+    if not run.effort:
+        return []
+    from .registry import _models
+    model = run.model or (_models.get("muse") or {}).get("default_model") or ""
+    if not model:
+        return []
+    return ["-c", "model_reasoning_efforts=" + json.dumps({model: run.effort})]
+
+
 def _stage_tools(run: Run) -> list[str]:
     """The ModStage MCP server as a host setting. Muse 1.4.9 refuses mcpServers in session/start and
     takes one server per `-c mcpServers.<name>=<json>`. Muse treats every env value there as a secret:
@@ -69,7 +81,7 @@ class MuseAdapter:
         self.session_id: str | None = None
         self.turn_id: str | None = None
         self.stderr_tail: list[str] = []
-        self.rpc = StdioRpc(argv(run.spec, run.model) + _stage_tools(run), run.cwd,
+        self.rpc = StdioRpc(argv(run.spec, run.model) + _effort_args(run) + _stage_tools(run), run.cwd,
                             on_notify=self._notify, on_request=self._request,
                             on_exit=self._exited, on_stderr=self._stderr, jsonrpc=True,
                             env=agent_env(run))

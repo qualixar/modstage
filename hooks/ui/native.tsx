@@ -8,9 +8,10 @@ export type NativeAction =
   | { type: 'interrupt'; id: string }
   | { type: 'jump'; id: string }
   | { type: 'close'; id: string }
-  | { type: 'launch'; engine: string; prompt: string; autonomy: 'ask' | 'auto'; model: string }
+  | { type: 'launch'; engine: string; prompt: string; autonomy: 'ask' | 'auto'; model: string; effort?: string }
   | { type: 'pickAgent'; engine: string }
   | { type: 'pickModel'; model: string }
+  | { type: 'pickEffort'; effort: string }
 
 const ACCENT = '#D97757'
 const WARN = '#E0AF68'
@@ -68,7 +69,7 @@ export function drawInbox(el: any, items: Pending[], colours: Record<string, str
 /** Start a run in one click: every installed agent is a button, always visible. Clicking one opens
  *  its task box right below; clicking it again (or Cancel) closes it. Runs start in safe (ask) mode. */
 export function drawLauncher(el: any, agents: StageAgent[], picked: string, model: string, canType: boolean,
-                             act: (a: NativeAction) => void) {
+                             act: (a: NativeAction) => void, effort = '') {
   const { Box, Text, Button } = el
   const Input = el.Input
   const ready = agents.filter(a => a.installed)
@@ -114,10 +115,11 @@ export function drawLauncher(el: any, agents: StageAgent[], picked: string, mode
           </Text>
           {agent.note ? <Text color={WARN} wrap="wrap">⚠ {agent.note}</Text> : null}
           {drawModels(el, agent, model, act)}
+          {drawEfforts(el, agent, model, effort, act)}
           {canType && Input ? (
             <Input key={`launch-task:${agent.id}`} submitLabel="Start" autoFocus
               placeholder={`What should ${agent.name} do?`}
-              onSubmit={(v: string) => v.trim() && act({ type: 'launch', engine: agent.id, prompt: v.trim(), autonomy: 'ask', model })} />
+              onSubmit={(v: string) => v.trim() && act({ type: 'launch', engine: agent.id, prompt: v.trim(), autonomy: 'ask', model, effort })} />
           ) : <Text dimColor>Typing is not available here; ask Claude to start the run.</Text>}
           <Box flexDirection="row">
             <Button key="launch-cancel" label="Cancel" onPress={() => act({ type: 'pickAgent', engine: '' })} />
@@ -150,6 +152,35 @@ function drawModels(el: any, agent: StageAgent, model: string, act: (a: NativeAc
       {listed.length > MAX_CHIPS ? (
         <Text dimColor wrap="truncate-end">+{listed.length - MAX_CHIPS} more: ask Claude to start it on any model id</Text>
       ) : !listed.length ? <Text dimColor wrap="truncate-end">this CLI lists no models; ask Claude to start it on a specific model id</Text> : null}
+    </Box>
+  )
+}
+
+/** The thinking levels this agent takes for the picked model (its default model when none is picked): the model's own
+ *  list from its CLI, else the agent's one list. Empty means the CLI has no effort setting ModStage can apply. */
+export function effortsFor(agent: StageAgent, model: string): string[] {
+  const entry = (agent.models ?? []).find(m => m.id === (model || agent.default_model) || m.variant === (model || agent.default_model))
+  return entry?.efforts ?? agent.efforts ?? []
+}
+
+/** Thinking-effort chips for the picked agent and model: "default" first (what its own config uses), then each level. */
+function drawEfforts(el: any, agent: StageAgent, model: string, effort: string, act: (a: NativeAction) => void) {
+  const { Box, Text, Button } = el
+  const levels = effortsFor(agent, model)
+  if (!levels.length) return null
+  const entry = (agent.models ?? []).find(m => m.id === (model || agent.default_model))
+  const fallback = entry?.default_effort || agent.default_effort || ''
+  return (
+    <Box key={`efforts:${agent.id}`} flexDirection="column">
+      <Text dimColor>thinking effort</Text>
+      <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap">
+        <Button key="effort:" label={`${effort ? '' : '● '}default${fallback ? ` (${fallback})` : ''}`} variant={effort ? undefined : 'primary'}
+          onPress={() => act({ type: 'pickEffort', effort: '' })} />
+        {levels.map(l => (
+          <Button key={`effort:${l}`} label={`${l === effort ? '● ' : ''}${l}`} variant={l === effort ? 'primary' : undefined}
+            onPress={() => act({ type: 'pickEffort', effort: l === effort ? '' : l })} />
+        ))}
+      </Box>
     </Box>
   )
 }

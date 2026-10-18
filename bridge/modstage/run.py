@@ -29,13 +29,15 @@ Answer = Callable[[str], None]
 
 class Run:
     def __init__(self, spec: dict, prompt: str, cwd: str, model: str | None, label: str | None,
-                 autonomy: str = "ask", owns: list[str] | None = None, owner: str = ""):
+                 autonomy: str = "ask", owns: list[str] | None = None, owner: str = "", effort: str = ""):
         self.id = uuid.uuid4().hex[:8]
         self.engine = spec["id"]
         self.spec = spec
         self.prompt = prompt
         self.cwd = cwd
         self.model = model
+        # the thinking effort asked for at start ('' = the CLI's own default); adapters set it to what the CLI reports back
+        self.effort = effort or ""
         self.label = label or prompt.strip().splitlines()[0][:80]
         self.autonomy = "auto" if autonomy == "auto" else "ask"
         self.owns = list(owns or [])
@@ -240,7 +242,7 @@ class Run:
             return {
                 "id": self.id, "engine": self.engine, "name": self.spec.get("name", self.engine),
                 "color": self.spec.get("color"), "steer": self.spec.get("steer", "queue"),
-                "model": self.model, "label": self.label, "cwd": self.cwd,
+                "model": self.model, "effort": self.effort, "label": self.label, "cwd": self.cwd,
                 "status": self.status, "activity": self.activity, "autonomy": self.autonomy,
                 "started_at": self.started_at, "elapsed_s": round(end - self.started_at, 1),
                 "quiet_s": quiet, "stuck": quiet >= STUCK_AFTER_S,

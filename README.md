@@ -53,6 +53,7 @@ Claude Code mods, which Anthropic calls Claude Mods, arrived on 1 October 2026 i
 - **Approve from Claude chat.** Tell Claude "allow the curl" and it answers the card with `stage_decide`. Claude only does this on your own words, never because an agent, a file or a web page asked.
 - **Many agents, one folder, no clobbering.** A shared board gives each folder file claims (leases), messages between agents, and a `STATE.md` humans can read. Claude Code is a peer on that board too: agents can message it, and Claude's own edits stop at a file another agent holds.
 - **Model picker per agent**, filled from each CLI's own list (Codex, Grok, Antigravity, OpenCode, Muse, Kimi).
+- **Thinking-effort picker** for the agents that take one (Codex low to ultra, Muse minimal to max, Grok low to high), with the effort your CLI's own config uses marked as the default. Antigravity carries its effort in the model name; OpenCode's ACP mode offers none.
 - **Images.** Hand a run screenshots with `images: ["/abs/path.png"]`: Codex (checked with a real run), plus Muse, Kimi, Qwen Code and OpenCode, whose protocols take images. Grok and Antigravity refuse with a reason instead of dropping the image.
 - **Tokens, context and cost** where the CLI reports them.
 - **Every session owns its agents.** Like Claude Code's own subagents, the agents a session starts appear only in that session, answer only to it, and take messages only from their own siblings. Another session, or an agent that reads ModStage's files, cannot see, steer or approve them (see [Parent and child](#parent-and-child)).
@@ -104,13 +105,13 @@ To try it without installing, clone the repo and start Claude Code with `claude 
 
 ## Use it
 
-**From the panel.** Click an agent, pick a model or keep its default, type the task, press **Start**. It works in your Claude Code session's folder.
+**From the panel.** Click an agent, pick a model and a thinking effort or keep the defaults, type the task, press **Start**. It works in your Claude Code session's folder.
 
 **From Claude.** Ask in plain words: "hand the tests to Codex and keep going on the API", or "ask Grok to review this diff while you fix the migration". Claude uses these tools:
 
 | Tool | What it does |
 |---|---|
-| `stage_start` | start an agent on a task, with a model, autonomy, owned files and images |
+| `stage_start` | start an agent on a task, with a model, thinking effort, autonomy, owned files and images |
 | `stage_wait` | wait for the turn to end or for you to be needed; says `waiting_on_user` instead of making Claude poll |
 | `stage_send` | message a run (steer, queue, or `now: true` to interrupt and send) |
 | `stage_decide` | answer a waiting approval, only when you said so in chat |

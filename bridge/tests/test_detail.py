@@ -136,3 +136,30 @@ class AntigravityDetailTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MuseFindReplaceTest(unittest.TestCase):
+    def test_the_real_muse_edit_tool_shape_gives_a_diff(self):
+        # seen live on Muse 1.4.10: edit_file takes {path, find, replace}
+        d = edit_detail({"path": "note.txt", "find": "hello", "replace": "goodbye"})
+        self.assertIn("-hello", d)
+        self.assertIn("+goodbye", d)
+        h = Harness("muse")
+        self.addCleanup(h.stop)
+        h.adapter._item({"kind": "toolCall", "tool": "edit_file", "toolStatus": "completed",
+                         "args": {"path": "note.txt", "find": "hello", "replace": "goodbye"}}, done=True)
+        self.assertIn("+goodbye", events(h, "edit")[0]["detail"])
+
+
+class CodexBriefTest(unittest.TestCase):
+    def test_codex_is_told_to_use_the_board_tools_not_a_shell_that_cannot_reach_it(self):
+        from modstage.coordination import brief
+        hc, hg = Harness("codex"), Harness("grok")
+        self.addCleanup(hc.stop)
+        self.addCleanup(hg.stop)
+        codex = brief(hc.run)
+        self.assertIn("stage_claim", codex)
+        self.assertNotIn("modstage-cli", codex)
+        self.assertIn("your shell cannot reach the board", codex)
+        other = brief(hg.run)
+        self.assertIn("modstage-cli", other)   # agents whose shell can reach it keep the fallback

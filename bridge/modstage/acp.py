@@ -63,7 +63,7 @@ class AcpAdapter:
         self.turn_said = False  # anything (text, thinking, a tool) reported since the last turn ended
         self.turn_base = dict(input=0, cached=0, output=0, reasoning=0)
         self.spent = {"input": 0, "cached": 0, "output": 0, "reasoning": 0, "cost": 0.0}
-        self.rpc = StdioRpc(argv(run.spec, run.model), run.cwd, on_notify=self._notify,
+        self.rpc = StdioRpc(argv(run.spec, run.model, run.effort), run.cwd, on_notify=self._notify,
                             on_request=self._request, on_exit=self._exited,
                             on_stderr=lambda line: None, jsonrpc=True,
                             env=agent_env(run))
@@ -92,11 +92,35 @@ class AcpAdapter:
         wanted = run.model
         self._context_from(session)
         self._pick_model(session, wanted)
+        self._pick_effort(session)
         self._prompt(f"{brief(run)}\n\nTask:\n{run.prompt}", run.start_images)
 
     def _no_images(self) -> str:
         return (f"{self.run.spec.get('name', self.run.engine)} does not accept images: its ACP initialize says "
                 "promptCapabilities.image is false. Describe the image in words, or use an agent that takes images.")
+
+    def _pick_effort(self, session: dict) -> None:
+        """Thinking effort for agents that take it as a session setting (OpenCode). Agents with a startup flag
+        (Grok) already have it. Never silently ignored: if the CLI offers no such setting, the run says so."""
+        run = self.run
+        if not run.effort or run.spec.get("effort_args"):
+            return
+        options = session.get("configOptions") or []
+        option = next((o for o in options if o.get("category") == "thought_level"
+                       or str(o.get("id", "")).lower() in ("effort", "reasoning_effort", "thought_level", "variant", "reasoning")), None)
+        if not option:
+            offered = ", ".join(str(o.get("id")) for o in options) or "none"
+            run.add("warning", f"{run.engine} advertises no thinking-effort setting over ACP (it offers: {offered}); "
+                               f"running on its own default instead of {run.effort}")
+            run.set(effort="")
+            return
+        try:
+            self.rpc.call("session/set_config_option", {"sessionId": self.session_id, "configId": option["id"],
+                                                         "value": run.effort}, timeout=30)
+            run.add("status", f"thinking effort set to {run.effort}")
+        except Exception as exc:
+            run.add("warning", f"could not set thinking effort {run.effort} ({exc}); running on the CLI's default")
+            run.set(effort="")
 
     def _pick_model(self, session: dict, wanted: str | None) -> None:
         """Make the session run on the model that was asked for. A model flag is not enough: `kimi -m X acp`

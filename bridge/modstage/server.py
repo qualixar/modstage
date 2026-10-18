@@ -74,8 +74,10 @@ def start_run(body: dict, owner: str) -> Run:
     if not isinstance(owns, list) or not all(isinstance(o, str) for o in owns):
         raise ValueError("owns must be a list of file paths or glob patterns")
     registry.check_model(engine, body.get("model"))
+    effort = str(body.get("effort") or "").strip()
+    registry.check_effort(engine, body.get("model"), effort)
     run = Run(spec, prompt, cwd, body.get("model"), body.get("label"), body.get("autonomy", "ask"), owns,
-              owner=owner)
+              owner=owner, effort=effort)
     run.start_images = images_from(body)
     RUNS[run.id] = run
     BOARD.register(run)

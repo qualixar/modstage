@@ -35,7 +35,8 @@ BUILTIN: list[dict] = [
     {"id": "muse", "name": "Muse", "protocol": "muse-msp", "command": ["muse", "serve"],
      "color": "#C792EA", "steer": "native", "model_args": ["--model", "{model}"]},
     {"id": "grok", "name": "Grok", "protocol": "acp", "command": ["grok", "agent", "stdio"],
-     "color": "#E0AF68", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 2},
+     "color": "#E0AF68", "steer": "queue", "model_args": ["-m", "{model}"], "model_args_before": 2,
+     "effort_args": ["--effort", "{effort}"], "efforts": ["low", "medium", "high"]},
     {"id": "antigravity", "name": "Antigravity", "protocol": "stream-json",
      "command": ["agy", "--input-format", "stream-json", "--output-format", "stream-json", "--print="],
      "auto_args": ["--dangerously-skip-permissions"], "approvals": "cli", "ask_readonly": "agy-project",
@@ -96,10 +97,14 @@ def load() -> dict[str, dict]:
     return agents
 
 
-def argv(spec: dict, model: str | None) -> list[str]:
+def argv(spec: dict, model: str | None, effort: str | None = None) -> list[str]:
     cmd = list(spec["command"])
+    extra: list[str] = []
     if model and spec.get("model_args"):
-        extra = [a.replace("{model}", model) for a in spec["model_args"]]
+        extra += [a.replace("{model}", model) for a in spec["model_args"]]
+    if effort and spec.get("effort_args"):
+        extra += [a.replace("{effort}", effort) for a in spec["effort_args"]]
+    if extra:
         at = spec.get("model_args_before")
         cmd = cmd[:at] + extra + cmd[at:] if isinstance(at, int) else cmd + extra
     return cmd
@@ -139,7 +144,7 @@ MODEL_SOURCES: dict[str, tuple[list[str], str]] = {
     "codex": (["codex", "debug", "models"], "codex_json"),
     "grok": (["grok", "models"], "bullets"),
     "antigravity": (["agy", "models"], "tabbed"),
-    "opencode": (["opencode", "models"], "lines"),
+    "opencode": (["opencode", "models", "--verbose"], "opencode_verbose"),
 }
 _models: dict[str, dict] = {}
 _models_lock = threading.Lock()
@@ -155,7 +160,23 @@ def parse_models(kind: str, text: str) -> tuple[list[dict], str]:
         data = json.loads(text)
         for m in data.get("models", []):
             if m.get("slug"):
-                models.append({"id": m["slug"], "label": m.get("display_name") or m["slug"]})
+                entry = {"id": m["slug"], "label": m.get("display_name") or m["slug"]}
+                levels = [str(x.get("effort")) for x in m.get("supported_reasoning_levels") or [] if x.get("effort")]
+                if levels:
+                    entry["efforts"] = levels
+                    entry["default_effort"] = str(m.get("default_reasoning_level") or "")
+                models.append(entry)
+    elif kind == "opencode_verbose":  # "provider/model\n{json}" blocks: the id, and the display name when it has one
+        import re
+        for block in re.split(r"\n(?=[a-z0-9_.-]+/[A-Za-z0-9_.:-]+\n)", text):
+            head, _, body = block.partition("\n")
+            try:
+                info = json.loads(body)
+            except ValueError:
+                continue
+            # Its models list `variants` (effort levels), but `opencode acp` advertises no effort setting (checked live
+            # 18 Oct 2026: its session offers only `model` and `mode`), so none are offered: ModStage cannot apply one.
+            models.append({"id": head.strip(), "label": info.get("name") or head.strip()})
     elif kind == "bullets":  # "  * grok-4.7 (default)" / "  - grok-4.6"
         for line in text.splitlines():
             s = line.strip()
@@ -221,11 +242,58 @@ def muse_catalog(result: dict) -> tuple[list[dict], str]:
         if mid.endswith(CONTRIBUTOR) and mid[: -len(CONTRIBUTOR)] in ids:
             continue
         entry = {"id": mid, "label": m.get("displayLabel") or mid}
+        if m.get("variants"):
+            entry["efforts"] = [str(v) for v in m["variants"]]
+            entry["default_effort"] = str(m.get("defaultReasoningEffort") or "")
         if mid + CONTRIBUTOR in ids:
             entry["variant"] = mid + CONTRIBUTOR
         models.append(entry)
     default = next((m["modelId"] for m in rows if m.get("isDefault")), "")
     return models, default
+
+
+def configured_effort(agent_id: str, model: str = "") -> str:
+    """The thinking effort the CLI uses when none is asked for, where its own config says so."""
+    home = Path.home()
+    try:
+        if agent_id == "codex":
+            for line in (home / ".codex" / "config.toml").read_text().splitlines():
+                if line.strip().startswith("model_reasoning_effort"):
+                    return line.split("=", 1)[1].strip().strip('"')
+        if agent_id == "muse":
+            per = _read_json(home / ".config" / "muse" / "settings.json").get("model_reasoning_efforts") or {}
+            return str(per.get(model) or "")
+        if agent_id == "grok":
+            for line in (Path(os.environ.get("GROK_HOME", home / ".grok")) / "config.toml").read_text().splitlines():
+                if line.strip().startswith("default_reasoning_effort"):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except (OSError, ValueError, IndexError, AttributeError):
+        pass
+    return ""
+
+
+def efforts_for(agent_id: str, model: str | None) -> tuple[list[str], str]:
+    """(effort levels this model takes, the one it uses by default). The agent's own list when its CLI
+    has one level set for every model (Grok); else the model's own entry in its catalog."""
+    spec = load().get(agent_id) or {}
+    cached = _models.get(agent_id) or {}
+    model = model or cached.get("default_model") or ""
+    entry = next((m for m in cached.get("models") or [] if model in (m.get("id"), m.get("variant"))), {})
+    levels = list(entry.get("efforts") or spec.get("efforts") or [])
+    default = configured_effort(agent_id, model) or entry.get("default_effort") or ""
+    return levels, default
+
+
+def check_effort(agent_id: str, model: str | None, effort: str | None) -> None:
+    """Refuse an effort the agent cannot take, with what it does offer, instead of starting a run that ignores it."""
+    if not effort:
+        return
+    levels, _ = efforts_for(agent_id, model)
+    if not levels:
+        hint = (" Its effort is part of the model name: pick the High, Medium or Low model." if agent_id == "antigravity" else "")
+        raise ValueError(f"{agent_id} has no thinking-effort setting ModStage can apply.{hint}")
+    if effort not in levels:
+        raise ValueError(f"{agent_id} does not offer effort '{effort}' for {model or 'its default model'}. It offers: {', '.join(levels)}")
 
 
 def known_ids(models: list[dict]) -> set[str]:
@@ -331,9 +399,13 @@ def check_model(agent_id: str, model: str | None) -> None:
 
 def _listing(agent_id: str) -> dict:
     cached = _models.get(agent_id)
+    spec = load().get(agent_id) or {}
     if not cached:
-        return {"models": [], "default_model": _configured_default(agent_id)}
-    return {"models": cached["models"][:MAX_MODELS], "default_model": cached["default_model"]}
+        return {"models": [], "default_model": _configured_default(agent_id), "efforts": spec.get("efforts") or [],
+                "default_effort": configured_effort(agent_id)}
+    default_model = cached["default_model"]
+    return {"models": cached["models"][:MAX_MODELS], "default_model": default_model, "efforts": spec.get("efforts") or [],
+            "default_effort": efforts_for(agent_id, default_model)[1]}
 
 
 def doctor() -> dict:

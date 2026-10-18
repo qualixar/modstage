@@ -1,6 +1,6 @@
 {
   "name": "modstage",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Claude Code mod: run Codex, Grok, Muse, Antigravity and Claude subagents side by side, watch every step, steer them mid-run",
   "author": {
     "name": "Varun Pratap Bhardwaj",

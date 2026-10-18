@@ -85,7 +85,9 @@ class FakeRpc:
 
 
 REPLIES = {
-    "thread/start": {"thread": {"id": "th1"}, "model": "gpt-test"},
+    # Codex reports the effort it will use: the one asked for in the thread settings, else its own default
+    "thread/start": lambda p: {"thread": {"id": "th1"}, "model": "gpt-test",
+                               "reasoningEffort": (p.get("config") or {}).get("model_reasoning_effort", "medium")},
     "turn/start": lambda p: {"turn": {"id": "tu1"}} if "threadId" in p else {"turnId": "tu1"},
     "session/start": {"session": {"sessionId": "ms1", "modelId": "muse-test"}},
     "session/new": {"sessionId": "acp1", "configOptions": [{"id": "model", "category": "model", "type": "select",
@@ -101,9 +103,9 @@ def spec(agent: str) -> dict:
     return dict(registry.load()[agent])
 
 
-def make_run(agent: str, prompt: str = "say hi", model: str | None = None, autonomy: str = "ask") -> Run:
+def make_run(agent: str, prompt: str = "say hi", model: str | None = None, autonomy: str = "ask", effort: str = "") -> Run:
     cwd = tempfile.mkdtemp()
-    run = Run(spec(agent), prompt, cwd, model, None, autonomy)
+    run = Run(spec(agent), prompt, cwd, model, None, autonomy, effort=effort)
     RUNS[run.id] = run
     return run
 
@@ -111,9 +113,9 @@ def make_run(agent: str, prompt: str = "say hi", model: str | None = None, auton
 class Harness:
     """One agent's adapter wired to fakes. `started()` runs start(); `rpc`/`proc` hold what was sent."""
 
-    def __init__(self, agent: str, model: str | None = None, autonomy: str = "ask"):
+    def __init__(self, agent: str, model: str | None = None, autonomy: str = "ask", effort: str = ""):
         self.agent = agent
-        self.run = make_run(agent, model=model, autonomy=autonomy)
+        self.run = make_run(agent, model=model, autonomy=autonomy, effort=effort)
         self.protocol = self.run.spec["protocol"]
         self._patches = []
         self.held: list = []

@@ -61,9 +61,15 @@ class CodexAdapter:
                   "sandbox": "workspace-write", "developerInstructions": brief(run),
                   # our board tools only touch the coordination board, so they never need a prompt
                   "config": {"mcp_servers": {"modstage": {**mcp_server(run), "default_tools_approval_mode": "approve"}}}}
+        if run.effort:
+            params["config"]["model_reasoning_effort"] = run.effort   # the same key as ~/.codex/config.toml
         if run.model:
             params["model"] = run.model
         started = self.rpc.call("thread/start", params)
+        applied = started.get("reasoningEffort")   # what Codex says it will use: shown, so a wrong one is visible
+        if applied:
+            run.set(effort=str(applied))
+            run.add("status", f"thinking effort: {applied}" + ("" if run.effort in ("", str(applied)) else f" (asked for {run.effort})"))
         self.thread_id = started["thread"]["id"]
         run.set(model=started.get("model") or run.model, session_id=self.thread_id)
         self._start_turn(run.prompt, run.start_images)
