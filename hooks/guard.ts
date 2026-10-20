@@ -2,16 +2,19 @@
 // Claude on the watched path. External agents run through ModStage so the user sees them, and nothing in
 // this session talks to the bridge except the mod itself.
 
-const ENGINES = new Set(['codex', 'muse', 'grok', 'agy', 'antigravity', 'kimi', 'qwen', 'opencode'])
+const ENGINES = new Set(['codex', 'muse', 'grok', 'agy', 'antigravity', 'kimi', 'qwen', 'opencode', 'hermes'])
 // npx / bunx package names that start one of the engines
 const PACKAGES: Record<string, string> = {
   '@openai/codex': 'codex', 'codex': 'codex', '@qwen-code/qwen-code': 'qwen', 'qwen-code': 'qwen',
   'opencode-ai': 'opencode', 'opencode': 'opencode', '@vibe-kit/grok-cli': 'grok', 'kimi-cli': 'kimi',
+  'hermes-agent': 'hermes', 'hermes': 'hermes',
 }
 // first arguments that never start an agent turn
 const SAFE_FIRST = new Set(['--help', '-h', 'help', '--version', '-V', '-v', 'version', 'login', 'logout', 'auth',
   'models', 'model-profile', 'mcp', 'config', 'doctor', 'debug', 'update', 'upgrade', 'plugins', 'skills',
   'sandbox', 'schema', 'trace', 'export', 'completion', 'serve', 'acp', 'stdio'])
+// hermes flags that take a value, so the value is not mistaken for a subcommand
+const HERMES_VALUE_FLAGS = new Set(['-m', '--model', '--provider', '--reasoning', '-t', '--toolsets', '--resume', '--continue', '--in', '--skills', '--usage-file'])
 const HELP = new Set(['--help', '-h', '--version', '-V'])
 const WRAPPERS = new Set(['command', 'exec', 'nohup', 'time', 'builtin', 'caffeinate', 'stdbuf', 'unbuffer'])
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish'])
@@ -124,15 +127,21 @@ function launchIn(argv: string[], depth: number): string {
       const pkg = (argv[i] ?? '').replace(/@[^@/]*$/, '')  // drop a version: @openai/codex@1.2 -> @openai/codex
       const engine = PACKAGES[pkg] ?? (ENGINES.has(base(pkg)) ? base(pkg) : '')
       if (!engine) return ''
-      return turnArgs(argv.slice(i + 1)) ? engine : ''
+      return turnArgs(argv.slice(i + 1), engine) ? engine : ''
     }
-    return ENGINES.has(w) && turnArgs(argv.slice(i + 1)) ? w : ''
+    return ENGINES.has(w) && turnArgs(argv.slice(i + 1), w) ? w : ''
   }
 }
 
 /** True when these arguments start an agent turn (not help, version or a housekeeping subcommand). */
-function turnArgs(args: string[]): boolean {
+function turnArgs(args: string[], engine = ''): boolean {
   if (args.some(a => HELP.has(a))) return false
+  if (engine === 'hermes') {
+    // Hermes has many admin subcommands (sessions, gateway, cron, send, secrets, proxy ...), so only the forms that
+    // start an agent turn go through ModStage: a bare `hermes`, `chat`, `acp` and `-z` / `--oneshot`.
+    return args.some(a => a === '-z' || a === '--oneshot' || a.startsWith('--oneshot=') || a === 'chat' || a === 'acp')
+      || !args.some((a, i) => !a.startsWith('-') && !HERMES_VALUE_FLAGS.has(args[i - 1] ?? ''))
+  }
   const first = args.find(a => !a.startsWith('-')) ?? args[0] ?? ''
   return !(args.length && SAFE_FIRST.has(args[0]!)) && !SAFE_FIRST.has(first)
 }

@@ -4,7 +4,7 @@
 
 <h1 align="center">Qualixar ModStage</h1>
 
-<p align="center"><b>A Claude Code mod that runs Codex, Grok, Muse, Antigravity, Kimi, Qwen Code, OpenCode and Claude as subagents inside Claude Code. Watch every step live, steer them mid-run, approve their risky actions from the panel or from chat.</b></p>
+<p align="center"><b>A Claude Code mod that runs Codex, Grok, Muse, Antigravity, Kimi, Qwen Code, OpenCode, Hermes and Claude as subagents inside Claude Code. Watch every step live, steer them mid-run, approve their risky actions from the panel or from chat.</b></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
@@ -68,6 +68,7 @@ Claude Code mods, which Anthropic calls Claude Mods, arrived on 1 October 2026 i
 | Kimi | `kimi acp` | queued, or interrupt and send now | yes |
 | Qwen Code | `qwen --acp` | queued, or interrupt and send now | yes |
 | OpenCode | `opencode acp` | queued, or interrupt and send now | yes |
+| Hermes (Nous Research) | `hermes acp` (install: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash`) | queued, or interrupt and send now | yes, unless `approvals.mode` in Hermes's own config is off (the launcher says so before Start) |
 | Antigravity (Gemini) | `agy` stream-json print mode | queued, or interrupt and send now (restarts agy with a recap) | no: headless agy cannot ask. Ask runs are read-only (web pages, web search, files in its folder); anything else is refused, shown, and the run marked blocked |
 | Claude Code subagents | the mod API and SendMessage | reaches it after its current step | Claude Code's own permission prompts |
 
@@ -164,7 +165,7 @@ If you run [SuperLocalMemory](https://github.com/qualixar/superlocalmemory), run
 Claude Code ── mod: panel, tools, guards ──► bridge on 127.0.0.1 (install token + per-session secret)
                                               ├─ codex app-server
                                               ├─ muse serve
-                                              ├─ ACP agents: grok, kimi, qwen, opencode, …
+                                              ├─ ACP agents: grok, kimi, qwen, opencode, hermes, …
                                               ├─ agy stream-json
                                               └─ board per folder: leases, messages, STATE.md
 ```

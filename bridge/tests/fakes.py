@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from modstage import acp, codex, muse, registry, stream_json  # noqa: E402
 from modstage.run import RUNS, Run  # noqa: E402
 
-AGENTS = ["claude", "codex", "muse", "grok", "antigravity", "kimi", "qwen", "opencode"]
+AGENTS = ["claude", "codex", "muse", "grok", "antigravity", "kimi", "qwen", "opencode", "hermes"]
 BRIDGE_AGENTS = AGENTS[1:]
 
 
@@ -92,7 +92,7 @@ REPLIES = {
     "session/start": {"session": {"sessionId": "ms1", "modelId": "muse-test"}},
     "session/new": {"sessionId": "acp1", "configOptions": [{"id": "model", "category": "model", "type": "select",
                                                             "currentValue": "default-m"}]},
-    # what each ACP agent's own initialize said on 16 Oct 2026 (grok: image false; kimi, qwen, opencode: true)
+    # what each ACP agent's own initialize said on 16 Oct 2026 (grok: image false; kimi, qwen, opencode, hermes: true)
     "initialize": lambda p: {"agentCapabilities": {"promptCapabilities": {"image": FakeRpc.image}}},
     # an ACP prompt call returns when its turn ends; Harness holds it until end_turn()
     "session/prompt": {"stopReason": "end_turn"},

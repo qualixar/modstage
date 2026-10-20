@@ -10,6 +10,7 @@ export const ENGINE: Record<string, string> = {
   kimi: '#FF6B9D', // pink
   qwen: '#6FCF5B', // green
   opencode: '#8E9AAF', // slate
+  hermes: '#E4572E', // vermilion
 }
 
 export const ACCENT = '#D97757' // ModStage's own coral, used for the wordmark and primary actions

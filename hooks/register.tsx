@@ -52,7 +52,7 @@ let clientFault = ''
 // prompt origins that are the user's own gesture; a peer session, a plugin, a schedule or a task notification is not
 const USER_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 const RUNNING = new Set(['running', 'starting'])
-const FALLBACK_ENGINES = ['codex', 'muse', 'grok', 'antigravity', 'kimi', 'qwen', 'opencode']
+const FALLBACK_ENGINES = ['codex', 'muse', 'grok', 'antigravity', 'kimi', 'qwen', 'opencode', 'hermes']
 
 async function setup($: any): Promise<void> {
   if (env.root) return

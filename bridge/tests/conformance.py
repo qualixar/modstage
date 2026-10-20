@@ -21,7 +21,7 @@ from fakes import BRIDGE_AGENTS, Harness, make_run
 from modstage import registry, server
 
 NATIVE_STEER = {"codex", "muse"}
-QUEUE_STEER = {"grok", "antigravity", "kimi", "qwen", "opencode"}
+QUEUE_STEER = {"grok", "antigravity", "kimi", "qwen", "opencode", "hermes"}
 
 CONTROLS = ["start", "model", "effort", "stream", "long_turn", "tool_detail", "edit_diff", "approval", "steer", "queued", "interrupt", "resume", "close", "images"]
 TITLES = {
@@ -95,7 +95,7 @@ def check_effort(t, agent):
         else:   # kimi, qwen, opencode: set through ACP when the CLI advertises a thought-level setting
             sets = [p for m, p in h.rpc.calls if m == "session/set_config_option" and p.get("value") == "high"]
             t.assertTrue(sets, "the advertised effort setting was not set")
-    if agent == "opencode":
+    if agent in ("opencode", "hermes"):
         # its ACP session advertises no effort setting (live, 18 Oct 2026): the run must say so and use its default
         def no_setting(h):
             h.started()
@@ -306,6 +306,8 @@ DEGRADED = {
     **{(a, "steer"): "CLI has no mid-turn input; the message queues until the turn ends" for a in QUEUE_STEER},
     ("grok", "approval"): "the round trip works, but Grok's own config (permission_mode = always-approve) means it "
                           "never asks; the launcher says so before Start",
+    ("hermes", "model"): "`hermes acp` has no model flag: ModStage sets the model with ACP session/set_model from the "
+                         "availableModels that session/new returns (checked live)",
     ("opencode", "model"): "`opencode acp` has no model flag: ModStage sets ACP's `model` config option after "
                            "session/new (verified live: session/set_config_option switched it)",
     ("antigravity", "long_turn"): "agy streams no thinking text, only step events: the panel shows 'thinking' and "
@@ -317,7 +319,7 @@ DEGRADED = {
     ("codex", "edit_diff"): "each change's `diff` field from the app-server's fileChange item; the field name is the "
                             "protocol's as documented, not yet confirmed against the real CLI (run scripts/smoke_real_cli.py)",
     **{(a, "edit_diff"): "the diff comes from the ACP `diff` block the CLI sends (old and new text); not yet confirmed "
-                         "against each real CLI (run scripts/smoke_real_cli.py)" for a in ("grok", "kimi", "qwen", "opencode")},
+                         "against each real CLI (run scripts/smoke_real_cli.py)" for a in ("grok", "kimi", "qwen", "opencode", "hermes")},
     ("muse", "edit_diff"): "built from the edit tool's own arguments (replace old/new text, or the whole new file); an edit "
                            "tool with another argument shape shows the file name only",
     ("antigravity", "edit_diff"): "built from the edit tool's own parameters (target/replacement content, or the whole new "
@@ -333,11 +335,12 @@ NA = {
     ("antigravity", "images"): "agy's print mode takes text only (no verified image input): ModStage refuses with a reason",
     ("opencode", "effort"): "`opencode acp` advertises only `model` and `mode` (checked live): there is no effort setting to apply. "
                             "ModStage offers none; an effort asked for anyway is refused. Its models do list `variants` for `opencode run`",
+    ("hermes", "effort"): "hermes acp advertises no thinking-effort setting; ModStage offers none and refuses one asked for",
     ("antigravity", "effort"): "agy carries its effort in the model name (Gemini 3.8 Flash High, Medium, Low): pick that model; "
                                "ModStage refuses an effort for it and says so",
 }
 # n/a cells whose check asserts the honest label (the rest have nothing to run)
-NA_CHECKED = {("antigravity", "approval"), ("grok", "images"), ("antigravity", "images"), ("antigravity", "effort"), ("opencode", "effort")}
+NA_CHECKED = {("antigravity", "approval"), ("grok", "images"), ("antigravity", "images"), ("antigravity", "effort"), ("opencode", "effort"), ("hermes", "effort")}
 
 GAPS = {
 }

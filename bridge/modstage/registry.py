@@ -47,6 +47,8 @@ BUILTIN: list[dict] = [
      "color": "#6FCF5B", "steer": "queue", "model_args": ["--model", "{model}"]},
     {"id": "opencode", "name": "OpenCode", "protocol": "acp", "command": ["opencode", "acp"],
      "color": "#8E9AAF", "steer": "queue", "model_args": [], "model_via": "acp-config"},
+    {"id": "hermes", "name": "Hermes", "protocol": "acp", "command": ["hermes", "acp"],
+     "color": "#E4572E", "steer": "queue", "model_args": [], "model_via": "acp-config"},
 ]
 
 # How to get each CLI when it is missing: shown in the panel, by stage_agents and in the "not installed" error.
@@ -59,6 +61,7 @@ INSTALL = {
     "kimi": "see https://github.com/MoonshotAI/kimi-cli",
     "qwen": "npm install -g @qwen-code/qwen-code",
     "opencode": "npm install -g opencode-ai",
+    "hermes": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash (Windows: iex (irm https://hermes-agent.nousresearch.com/install.ps1))",
 }
 for _spec in BUILTIN:
     _spec["install"] = INSTALL[_spec["id"]]
@@ -121,6 +124,14 @@ def _approval_note(spec: dict) -> str:
             return ""
         if "always-approve" in text or "bypassPermissions" in text:
             return f"auto-approves every action ({cfg}: permission_mode); ModStage cannot ask you first"
+    if spec["id"] == "hermes":
+        cfg = _hermes_home() / "config.yaml"
+        try:
+            block = _yaml_block(cfg.read_text(), "approvals")
+        except OSError:
+            return ""
+        if block.get("mode") in ("off", "yolo", "never"):
+            return f"approvals are off in {cfg} (approvals.mode: {block['mode']}); ModStage cannot ask you first"
     if spec.get("approvals") == "cli":
         return AGY_NOTE if spec.get("ask_readonly") == "agy-project" else (
             "headless agy cannot ask for permission: in ask mode it refuses anything that needs it, and the panel "
@@ -203,6 +214,156 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _hermes_home() -> Path:
+    return Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+
+
+def _yaml_block(text: str, name: str) -> dict[str, str]:
+    """The simple `key: value` lines under a top-level `name:` block of a YAML file. Stdlib only: ModStage
+    needs two or three scalar settings, not a YAML parser."""
+    out: dict[str, str] = {}
+    inside = False
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            inside = line.split("#")[0].strip() == f"{name}:"
+            continue
+        if inside and ":" in line:
+            key, _, value = line.strip().partition(":")
+            out[key.strip()] = value.split(" #")[0].strip().strip("'\"")
+    return out
+
+
+# ---- OpenCode: which providers the user really has, and a list worth showing ----
+
+PER_PROVIDER = 8  # models shown per provider in the panel; the whole filtered list is still accepted by check_model
+
+
+def _opencode_dirs() -> tuple[Path, Path]:
+    """(data dir, config dir) the way OpenCode itself places them: XDG when set, else ~/.local/share and ~/.config."""
+    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "opencode"
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "opencode"
+    return data, config
+
+
+def _strip_jsonc(text: str) -> str:
+    """JSON with // and /* */ comments and trailing commas (OpenCode's opencode.jsonc) as plain JSON.
+    Comment markers inside strings, like the // of a URL, are left alone."""
+    out, i, n, in_str = [], 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 1
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+            out.append(c)
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        else:
+            out.append(c)
+        i += 1
+    import re
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def _opencode_config() -> dict:
+    """OpenCode's own config: $OPENCODE_CONFIG when set, else the first of opencode.json, opencode.jsonc, config.json."""
+    paths = [Path(os.environ["OPENCODE_CONFIG"])] if os.environ.get("OPENCODE_CONFIG") else []
+    paths += [_opencode_dirs()[1] / name for name in ("opencode.json", "opencode.jsonc", "config.json")]
+    for path in paths:
+        try:
+            data = json.loads(_strip_jsonc(path.read_text()))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def opencode_providers() -> set[str]:
+    """Providers the user has set up: the NAMES in OpenCode's auth file (never the credentials), plus the provider of
+    the configured model and any provider the config has a block for. Empty when OpenCode shows none of this."""
+    names: set[str] = set()
+    try:
+        auth = json.loads((_opencode_dirs()[0] / "auth.json").read_text())
+        names |= {str(k) for k in auth} if isinstance(auth, dict) else set()
+    except (OSError, ValueError):
+        pass
+    cfg = _opencode_config()
+    for key in ("model", "small_model"):
+        if "/" in str(cfg.get(key) or ""):
+            names.add(str(cfg[key]).split("/", 1)[0])
+    if isinstance(cfg.get("provider"), dict):
+        names |= {str(k) for k in cfg["provider"]}
+    return names
+
+
+def _version_key(model_id: str) -> tuple[int, ...]:
+    """Newest first: the numbers in a model id (claude-sonnet-5-5 -> 5, 5) negated and padded; date stamps are ignored."""
+    import re
+    nums = [int(x) for x in re.findall(r"\d+", model_id.split("/", 1)[-1]) if len(x) <= 3][:4]
+    return tuple(-n for n in nums) + (0,) * (4 - len(nums))
+
+
+def shape_opencode(models: list[dict], default: str, providers: set[str]) -> list[dict]:
+    """Make OpenCode's listing usable. `opencode models` prints every catalog model, in provider order, so a cap on its
+    first lines hides most providers. Keep the providers the user has set up (all of them when none is known), put the
+    default model's provider first and the default model first in it, the rest of each provider newest first, and
+    name the provider on each entry so the route is clear."""
+    keep = [m for m in models if not providers or m["id"].split("/", 1)[0] in providers] if providers else list(models)
+    keep = keep or list(models)
+    first = default.split("/", 1)[0] if "/" in default else ""
+    names = sorted({m["id"].split("/", 1)[0] for m in keep}, key=lambda p: (p != first, p))
+    out = []
+    for name in names:
+        group = sorted((m for m in keep if m["id"].split("/", 1)[0] == name),
+                       key=lambda m: (m["id"] != default, _version_key(m["id"]), m["label"].lower(), m["id"]))
+        out += [{**m, "provider": name, "label": f"{m['label']} · {name}" if len(names) > 1 else m["label"]} for m in group]
+    return out
+
+
+def capped(models: list[dict]) -> list[dict]:
+    """The models the panel offers: PER_PROVIDER from each provider when the list is grouped, else the first MAX_MODELS."""
+    if not any(m.get("provider") for m in models):
+        return models[:MAX_MODELS]
+    seen: dict[str, int] = {}
+    out = []
+    for m in models:
+        n = seen.get(m["provider"], 0)
+        seen[m["provider"]] = n + 1
+        if n < PER_PROVIDER:
+            out.append(m)
+    return out
+
+
+def _source_stamp(agent_id: str) -> tuple:
+    """Modification times of the files a list depends on, so a list is fetched again when they change
+    (a provider added in OpenCode shows up without restarting the bridge)."""
+    if agent_id != "opencode":
+        return ()
+    data, config = _opencode_dirs()
+    files = [data / "auth.json"] + [config / n for n in ("opencode.json", "opencode.jsonc", "config.json")]
+    stamp = []
+    for f in files:
+        try:
+            stamp.append(f.stat().st_mtime_ns)
+        except OSError:
+            stamp.append(0)
+    return tuple(stamp)
+
+
 def _configured_default(agent_id: str, models: list[dict] | None = None) -> str:
     """The model the CLI uses when none is given, where its own config says so. Antigravity's settings
     name a display label ("Gemini 4 Argon (Medium)"); it is matched to the listed id."""
@@ -221,10 +382,9 @@ def _configured_default(agent_id: str, models: list[dict] | None = None) -> str:
             model = _read_json(home / ".qwen" / "settings.json").get("model")
             return str((model or {}).get("name") or "") if isinstance(model, dict) else str(model or "")
         if agent_id == "opencode":
-            for name in ("opencode.json", "config.json"):
-                cfg = home / ".config" / "opencode" / name
-                if cfg.exists():
-                    return str(_read_json(cfg).get("model") or "")
+            return str(_opencode_config().get("model") or "")
+        if agent_id == "hermes":
+            return _yaml_block((_hermes_home() / "config.yaml").read_text(), "model").get("default", "")
     except (OSError, ValueError, IndexError):
         pass
     return ""
@@ -327,8 +487,11 @@ def kimi_catalog(text: str) -> tuple[list[dict], str]:
 def _store(agent_id: str, models: list[dict], default: str) -> None:
     """Cache a fresh list. The CLI's own config names the model it really uses, so it wins over a catalog."""
     with _models_lock:
-        _models[agent_id] = {"models": models, "default_model": _configured_default(agent_id, models) or default,
-                             "fetched_at": time.time()}
+        chosen = _configured_default(agent_id, models) or default
+        if agent_id == "opencode" and models:
+            models = shape_opencode(models, chosen, opencode_providers())
+        _models[agent_id] = {"models": models, "default_model": chosen, "fetched_at": time.time(),
+                             "stamp": _source_stamp(agent_id)}
 
 
 def _fetch_models(agent_id: str) -> None:
@@ -355,7 +518,8 @@ def _fetch_models(agent_id: str) -> None:
 
 def _stale(agent_id: str) -> bool:
     cached = _models.get(agent_id)
-    return not cached or time.time() - cached.get("fetched_at", 0) > MODELS_TTL
+    return (not cached or time.time() - cached.get("fetched_at", 0) > MODELS_TTL
+            or cached.get("stamp", ()) != _source_stamp(agent_id))
 
 
 def _background_fetch(agent_id: str) -> None:
@@ -404,7 +568,7 @@ def _listing(agent_id: str) -> dict:
         return {"models": [], "default_model": _configured_default(agent_id), "efforts": spec.get("efforts") or [],
                 "default_effort": configured_effort(agent_id)}
     default_model = cached["default_model"]
-    return {"models": cached["models"][:MAX_MODELS], "default_model": default_model, "efforts": spec.get("efforts") or [],
+    return {"models": capped(cached["models"]), "default_model": default_model, "efforts": spec.get("efforts") or [],
             "default_effort": efforts_for(agent_id, default_model)[1]}
 
 
