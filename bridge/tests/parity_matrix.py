@@ -20,7 +20,7 @@ from fakes import BRIDGE_AGENTS  # noqa: E402
 
 OUT = HERE.parents[1] / "docs" / "PARITY-MATRIX.md"
 NAMES = {"claude": "Claude", "codex": "Codex", "muse": "Muse", "grok": "Grok", "antigravity": "Antigravity",
-         "kimi": "Kimi", "qwen": "Qwen Code", "opencode": "OpenCode"}
+         "kimi": "Kimi", "qwen": "Qwen Code", "opencode": "OpenCode", "hermes": "Hermes"}
 MARK = {"works": "✅ works", "degraded": "🟡 degraded", "gap": "❌ gap", "n/a": "➖ n/a"}
 
 # Claude subagents start through the mod API ($.agent.spawn), not the bridge, so the fake harness
@@ -133,7 +133,7 @@ def main() -> int:
         "- Long turns: Antigravity's stream carries step events but no thinking text. What agy did during the ~6 quiet "
         "minutes of one demo run is still unknown; the panel now shows 'no new output for Nm, still running' instead "
         "of looking frozen.",
-        "- Resume: Grok, Kimi, Qwen Code and OpenCode advertise ACP loadSession, so a native resume is possible; ModStage "
+        "- Resume: Grok, Kimi, Qwen Code, OpenCode and Hermes advertise ACP loadSession, so a native resume is possible; ModStage "
         "still restarts with a recap. That is listed as degraded, not built.",
         "- Claude Code's own approvals for its subagents are outside ModStage: Claude Code asks for those itself.",
         "",
@@ -148,7 +148,7 @@ def main() -> int:
         "session lists only the runs it started.",
         "- Codex takes a PNG through `images` and describes it.",
         "- Antigravity in ask mode ends a turn that needed a command as `blocked: refused …`, with the refusal in the feed.",
-        "- Muse lists its models through `model/list`; OpenCode switches model through its ACP config option.",
+        "- Muse lists its models through `model/list`; OpenCode switches model through its ACP config option; Hermes through ACP session/set_model.",
         "- Kimi: a message sent mid-turn shows \"1 queued\"; \"Interrupt and send now\" ends the turn and the held message "
         "runs next. This needed three fixes found live: `kimi -m X acp` ignores the flag (ModStage now sets the model through "
         "ACP), Kimi rejects a second prompt while one runs (ModStage now holds queued messages), and Kimi answers a cancel "

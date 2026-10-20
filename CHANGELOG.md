@@ -2,6 +2,16 @@
 
 All notable changes to ModStage are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until 1.0.0, minor versions may change behaviour; the release notes say when.
 
+## 0.0.20 - 2026-10-20
+
+### Added
+
+- Hermes (Nous Research) is a built-in agent, started over ACP (`hermes acp`).
+
+### Changed
+
+- OpenCode's model picker shows only providers you have set up, newest models first, capped per provider instead of overall, and refreshes when OpenCode's auth or config changes.
+
 ## 0.0.19 - 2026-10-19
 
 ### Fixed

@@ -69,7 +69,7 @@ export type StageAgent = {
   install?: string
   note: string
   /** models the CLI listed (capped); empty when it has no list command */
-  models?: Array<{ id: string; label: string; variant?: string; efforts?: string[]; default_effort?: string }>
+  models?: Array<{ id: string; label: string; provider?: string; variant?: string; efforts?: string[]; default_effort?: string }>
   /** thinking-effort levels that apply to every model of this agent (Grok), when its models list none */
   efforts?: string[]
   /** the effort the CLI uses when none is asked for, from its own config */

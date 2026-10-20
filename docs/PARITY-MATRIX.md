@@ -1,6 +1,6 @@
 # ModStage parity matrix
 
-Generated 2026-10-18 by `python3 bridge/tests/parity_matrix.py` from the conformance harness (`bridge/tests/conformance.py`, protocol fakes, zero tokens). Every bridge cell was produced by running its check; a gap is an expected failure, so fixing one fails the suite until the table is updated. The Claude row is read from `hooks/register.tsx`, not run through the fakes.
+Generated 2026-10-20 by `python3 bridge/tests/parity_matrix.py` from the conformance harness (`bridge/tests/conformance.py`, protocol fakes, zero tokens). Every bridge cell was produced by running its check; a gap is an expected failure, so fixing one fails the suite until the table is updated. The Claude row is read from `hooks/register.tsx`, not run through the fakes.
 
 What the fakes prove: ModStage sends and reads each CLI's protocol messages correctly, as we understand the protocol. What they do not prove: that the real CLI still speaks that protocol. That is the job of `scripts/smoke-real-cli.sh` (manual, one agent at a time, tiny prompts).
 
@@ -16,6 +16,7 @@ What the fakes prove: ModStage sends and reads each CLI's protocol messages corr
 | Kimi | ✅ works | ✅ works | 🟡 degraded [35] | ✅ works | ✅ works | ✅ works | 🟡 degraded [36] | ✅ works | 🟡 degraded [37] | ✅ works | ✅ works | 🟡 degraded [38] | ✅ works | ✅ works |
 | Qwen Code | ✅ works | ✅ works | 🟡 degraded [39] | ✅ works | ✅ works | ✅ works | 🟡 degraded [40] | ✅ works | 🟡 degraded [41] | ✅ works | ✅ works | 🟡 degraded [42] | ✅ works | ✅ works |
 | OpenCode | ✅ works | 🟡 degraded [43] | ➖ n/a [44] | ✅ works | ✅ works | ✅ works | 🟡 degraded [45] | ✅ works | 🟡 degraded [46] | ✅ works | ✅ works | 🟡 degraded [47] | ✅ works | ✅ works |
+| Hermes | ✅ works | 🟡 degraded [48] | ➖ n/a [49] | ✅ works | ✅ works | ✅ works | 🟡 degraded [50] | ✅ works | 🟡 degraded [51] | ✅ works | ✅ works | 🟡 degraded [52] | ✅ works | ✅ works |
 
 ## Checked once for every agent
 
@@ -82,6 +83,11 @@ What the fakes prove: ModStage sends and reads each CLI's protocol messages corr
 45. **OpenCode · 2d Edits show what changed**: the diff comes from the ACP `diff` block the CLI sends (old and new text); not yet confirmed against each real CLI (run scripts/smoke_real_cli.py)
 46. **OpenCode · 4 Steer mid-turn**: CLI has no mid-turn input; the message queues until the turn ends
 47. **OpenCode · 6 Resume after exit**: restarts a fresh process with a recap of the run, not the CLI's own session resume
+48. **Hermes · 1b Pick a model**: `hermes acp` has no model flag: ModStage sets the model with ACP session/set_model from the availableModels that session/new returns (checked live)
+49. **Hermes · 1c Pick a thinking effort**: hermes acp advertises no thinking-effort setting; ModStage offers none and refuses one asked for
+50. **Hermes · 2d Edits show what changed**: the diff comes from the ACP `diff` block the CLI sends (old and new text); not yet confirmed against each real CLI (run scripts/smoke_real_cli.py)
+51. **Hermes · 4 Steer mid-turn**: CLI has no mid-turn input; the message queues until the turn ends
+52. **Hermes · 6 Resume after exit**: restarts a fresh process with a recap of the run, not the CLI's own session resume
 
 ## What the tests cannot show
 
@@ -89,7 +95,7 @@ What the fakes prove: ModStage sends and reads each CLI's protocol messages corr
 - Images: the fakes prove each protocol's shape (Codex localImage path, Muse image part with base64Data, ACP image block) and the per-agent capability as each CLI's own initialize reported it on 16 Oct 2026. No real CLI has yet been handed an image through ModStage.
 - Queued messages: for ACP agents 'Interrupt and send now' sends session/cancel and the queued prompt runs next; the fakes show the cancel and the count, not that every ACP CLI starts the queued prompt after a cancel.
 - Long turns: Antigravity's stream carries step events but no thinking text. What agy did during the ~6 quiet minutes of one demo run is still unknown; the panel now shows 'no new output for Nm, still running' instead of looking frozen.
-- Resume: Grok, Kimi, Qwen Code and OpenCode advertise ACP loadSession, so a native resume is possible; ModStage still restarts with a recap. That is listed as degraded, not built.
+- Resume: Grok, Kimi, Qwen Code, OpenCode and Hermes advertise ACP loadSession, so a native resume is possible; ModStage still restarts with a recap. That is listed as degraded, not built.
 - Claude Code's own approvals for its subagents are outside ModStage: Claude Code asks for those itself.
 
 ## Live checks with real CLIs (October 2026)
@@ -100,7 +106,7 @@ Run against an installed build with tiny prompts, one agent at a time (`scripts/
 - In the desktop panel: the band's "needs you" button opens the panel with the card at the top, and each Claude session lists only the runs it started.
 - Codex takes a PNG through `images` and describes it.
 - Antigravity in ask mode ends a turn that needed a command as `blocked: refused …`, with the refusal in the feed.
-- Muse lists its models through `model/list`; OpenCode switches model through its ACP config option.
+- Muse lists its models through `model/list`; OpenCode switches model through its ACP config option; Hermes through ACP session/set_model.
 - Kimi: a message sent mid-turn shows "1 queued"; "Interrupt and send now" ends the turn and the held message runs next. This needed three fixes found live: `kimi -m X acp` ignores the flag (ModStage now sets the model through ACP), Kimi rejects a second prompt while one runs (ModStage now holds queued messages), and Kimi answers a cancel with an error (ModStage treats it as the interrupt).
 - A CLI that ends a turn without reporting anything (for example on a model its provider no longer serves) is flagged as an empty turn instead of a clean finish.
 - Not seen on screen yet: the message box refusing free text while a card waits (covered by the bridge's 409 and tests/panel.test.tsx).
