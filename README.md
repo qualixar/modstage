@@ -35,9 +35,7 @@ It comes out of our work on AI Reliability Engineering: an agent you cannot obse
 
 ## Demo
 
-<!-- DEMO VIDEO: drag modstage-demo-1min.mp4 into this spot in GitHub's web editor (it becomes a user-attachments video with an inline player), then delete this comment. -->
-
-One minute with sound: ModStage running Codex, Grok and Muse as Claude Code subagents, the approval inbox, steering an agent mid-run, file claims, and the SuperLocalMemory mesh.
+32 seconds, no sound: pick OpenCode with an Anthropic model, start agents side by side (Hermes among them), approve a risky action from the inbox, and watch the runs finish with the cost counted.
 
 https://github.com/user-attachments/assets/c9a76bb3-716a-4eda-a2a6-d7d1ca74c750
 
