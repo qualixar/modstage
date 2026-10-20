@@ -39,6 +39,8 @@ It comes out of our work on AI Reliability Engineering: an agent you cannot obse
 
 One minute with sound: ModStage running Codex, Grok and Muse as Claude Code subagents, the approval inbox, steering an agent mid-run, file claims, and the SuperLocalMemory mesh.
 
+https://github.com/user-attachments/assets/c9a76bb3-716a-4eda-a2a6-d7d1ca74c750
+
 The full 11-minute film, [What are Claude Code mods?](https://www.youtube.com/watch?v=l3DE44PYMWE), covers what mods are, the `($, e, next)` idea behind every mod, community mods, a live build with `claude plugin validate` and `claude plugin test`, the security part (mods are not sandboxed), and ModStage.
 
 ## What are Claude Code mods?
