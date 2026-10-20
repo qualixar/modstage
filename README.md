@@ -9,12 +9,14 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin%20(mod)-D97757">
-  <img alt="Agents: 8" src="https://img.shields.io/badge/agents-8-7AA2F7">
+  <img alt="Agents: 9" src="https://img.shields.io/badge/agents-9-7AA2F7">
   <img alt="Python 3.10+, standard library only" src="https://img.shields.io/badge/bridge-Python%203.10%2B%2C%20stdlib%20only-3776AB">
 </p>
 
 <p align="center">
-  <img src="assets/demo/modstage-hero.gif" alt="ModStage demo: Codex, Grok and Muse running as Claude Code subagents in a live panel; picking a model, approving a risky command, steering an agent mid-run, file claims, and 52 tests passing" width="900">
+  <video src="https://github.com/qualixar/modstage/raw/main/assets/demo/modstage-hero.mp4" poster="assets/demo/modstage-hero-poster.jpg" width="900" controls muted loop autoplay playsinline>
+    <a href="assets/demo/modstage-hero.mp4"><img src="assets/demo/modstage-hero-poster.jpg" alt="ModStage demo: eight agents in one Claude Code panel; picking OpenCode and an Anthropic model, starting five agents side by side, approving a risky action from the inbox, and watching the runs finish with the cost counted" width="900"></a>
+  </video>
 </p>
 <p align="center"><sub>Real recordings, no mock-ups. <a href="https://www.youtube.com/watch?v=l3DE44PYMWE">11-minute film: What are Claude Code mods?</a></sub></p>
 
