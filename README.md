@@ -14,10 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qualixar/modstage/raw/main/assets/demo/modstage-hero.mp4"><img src="assets/demo/modstage-hero-poster.jpg" alt="ModStage demo: eight agents in one Claude Code panel; picking OpenCode and an Anthropic model, starting five agents side by side, approving a risky action from the inbox, and watching the runs finish with the cost counted" width="900"></a>
+  <img src="assets/demo/modstage-hero.gif" alt="ModStage demo: eight agents in one Claude Code panel; picking OpenCode and an Anthropic model, starting agents side by side with Hermes among them, and approving a risky action from the inbox" width="900">
 </p>
-<p align="center"><sub>&#9654; Click the picture to play the 32-second demo.</sub></p>
-<p align="center"><sub>Real recordings, no mock-ups. <a href="https://www.youtube.com/watch?v=l3DE44PYMWE">11-minute film: What are Claude Code mods?</a></sub></p>
+<p align="center"><sub>Real recordings, no mock-ups. <a href="https://github.com/qualixar/modstage/blob/main/assets/demo/modstage-hero.mp4">Download the full 32-second demo (MP4)</a> · <a href="https://www.youtube.com/watch?v=l3DE44PYMWE">11-minute film: What are Claude Code mods?</a></sub></p>
 
 If you pay for more than one AI coding agent, each one lives in its own terminal. When Claude Code shells out to one of them, you see a command go in and an answer come back, and nothing in between: not the files it touched, not the command it is waiting to run, not the moment it got stuck. ModStage is a Claude Code plugin (a "mod") that brings those coding agents into your Claude Code session as visible, steerable subagents, so Claude Code becomes the orchestrator and every other CLI works where you can see it.
 
